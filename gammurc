@@ -1,0 +1,25 @@
+[gammu]
+device = /dev/ttyUSB0
+name = HUAWEI
+connection = at
+
+[smsd]
+# SMSD service to use, one of FILES, MYSQL, PGSQL, DBI
+service = files
+# PIN for SIM card
+# File (or stderr, syslog, eventlog) where information will be logged
+logfile = smsdlog
+# Amount of information being logged, each bit mean one level
+debuglevel = 0
+# Script to be executed when new message has been received
+#runonreceive = venv python3 /path/to/home/sms/smsd.py
+# Commication frequency settings
+commtimeout = 30
+sendtimeout = 30
+
+inboxpath = /path/to/home/sms/inbox/
+outboxpath = /path/to/home/sms/outbox/
+sentsmspath = /path/to/home/sms/sent/
+errorsmspath  = /path/to/home/sms/error/
+inboxformat = standard
+#outboxformat = detail
