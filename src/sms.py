@@ -25,7 +25,7 @@ def read_sms(file_path: str):
     return sms_texts
 
 
-async def init():
+async def main ():
     config = Configuration("config.pkl")
     sms_texts = read_sms(config.inbox_folder)
 
@@ -33,11 +33,6 @@ async def init():
 
     for sms_text in sms_texts:
         await bot.send_message(config.chat_id, sms_text)
-
-
-async def main():
-    await init()
-
 
 if __name__ == "__main__":
     logging.basicConfig(level=logging.DEBUG)

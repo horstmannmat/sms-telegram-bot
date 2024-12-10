@@ -34,7 +34,7 @@ dev = [
 ]
 
 [project.scripts]
-SMSBOT = "sms:main"
+SMSBOT = "sms:__main__"
 
 [project.urls]
 Homepage = "https://github.com/horstmannmat/sms-telegram-bot"

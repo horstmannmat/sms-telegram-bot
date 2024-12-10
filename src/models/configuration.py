@@ -3,6 +3,7 @@ from __future__ import absolute_import, annotations, print_function
 
 import logging
 import pickle
+from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
@@ -24,12 +25,13 @@ class Configuration:
 
     def _init_config(self):
         logger.debug("Loading config from %s", self.file_path)
+        
+        if Path(self.file_path).exists():
+            with open(self.file_path, "rb") as config_file:
+                tmp_config_dict = pickle.load(config_file).__dict__
+            logger.debug("Loaded config: %s", tmp_config_dict)
 
-        with open(self.file_path, "rb") as config_file:
-            tmp_config_dict = pickle.load(config_file).__dict__
-        logger.debug("Loaded config: %s", tmp_config_dict)
-
-        self.__dict__.update(tmp_config_dict)
+            self.__dict__.update(tmp_config_dict)
 
         write_config = False
         if not self.token:
