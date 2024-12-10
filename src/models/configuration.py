@@ -25,7 +25,7 @@ class Configuration:
 
     def _init_config(self):
         logger.debug("Loading config from %s", self.file_path)
-        
+
         if Path(self.file_path).exists():
             with open(self.file_path, "rb") as config_file:
                 tmp_config_dict = pickle.load(config_file).__dict__
