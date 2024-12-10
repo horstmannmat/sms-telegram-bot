@@ -32,14 +32,13 @@ dev = [
   "semantic-version==2.10.0",
   "nltk>=3.9.1",
 ]
-plot = [
-  "matplotlib>=3.9.2",
-  "PyQt6>=6.7.1"
-]
+
+[project.scripts]
+SMSBOT = "sms:main"
 
 [project.urls]
-Homepage = "https://github.com/pypa/sampleproject"
-Issues = "https://github.com/pypa/sampleproject/issues"
+Homepage = "https://github.com/horstmannmat/sms-telegram-bot"
+Issues = "https://github.com/horstmannmat/sms-telegram-bot/issues"
 
 [tool.setuptools]
 package-dir = {"" = "src"}
