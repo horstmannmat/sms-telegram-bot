@@ -1,4 +1,5 @@
-#HOW TO RUN
+# HOW TO RUN
+
  Install gammu programs [HERE](https://docs.gammu.org/quick/index.html#installing-gammu)
 ``` bash
     sudo apt install gammu gammu-smsd
