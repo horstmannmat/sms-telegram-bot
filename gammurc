@@ -12,7 +12,7 @@ logfile = smsdlog
 # Amount of information being logged, each bit mean one level
 debuglevel = 0
 # Script to be executed when new message has been received
-runonreceive = /path/to/home/sms-telegram-bot/.venv/bin/python /path/to/home/sms-telegram-bot/src/sms.py -C /path/to/home/sms-telegram-bot/src/config.pkl
+runonreceive = /path/to/home/sms-telegram-bot/.venv/bin/python /path/to/home/sms-telegram-bot/src/sms.py /path/to/home/sms-telegram-bot/src/config.pkl
 # Commication frequency settings
 commtimeout = 30
 sendtimeout = 30
