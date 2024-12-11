@@ -39,7 +39,10 @@ async def main():
         required=True,
         dest="config_file",
     )
-    args = parser.parse_args()
+
+    # Parse arguments and remove the last argument
+    # Gammu will pass the new SMS file as the last argument
+    args = parser.parse_args(sys.argv[:-1])
 
     if not pathlib.Path(args.config_file).exists():
         logger.error("Configuration file not found: %s", args.config_file)
