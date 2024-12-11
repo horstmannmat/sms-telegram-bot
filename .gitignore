@@ -126,3 +126,4 @@ nobackup/
 data/**
 whois.pkl*
 result_from_scripts.txt
+gammurc
