@@ -28,27 +28,14 @@ def read_sms(file_path: str):
 
 
 async def main():
-    parser = argparse.ArgumentParser(
-        description="Run Python Telegram SMS Bot",
-    )
-    parser.add_argument(
-        "--config",
-        "-C",
-        type=str,
-        help="Path to configuration file",
-        required=True,
-        dest="config_file",
-    )
-
-    # Parse arguments and remove the last argument
     # Gammu will pass the new SMS file as the last argument
-    args = parser.parse_args(sys.argv[:-1])
+    config_file = sys.argv[-2]
 
-    if not pathlib.Path(args.config_file).exists():
-        logger.error("Configuration file not found: %s", args.config_file)
+    if not pathlib.Path(config_file).exists():
+        logger.error("Configuration file not found: %s", config_file)
         sys.exit(1)
 
-    config = Configuration(args.config_file)
+    config = Configuration(config_file)
     sms_texts = read_sms(config.inbox_folder)
 
     bot = SMSBot(config.token)
