@@ -19,3 +19,7 @@ Run the program one first time to set the configs
     pip install .
     python src/sms.py
 ```
+
+## e-SIM usage
+
+You can try to to create a sim from my e-sim https://jmp.chat/esim-adapter
