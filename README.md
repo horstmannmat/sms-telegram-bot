@@ -22,4 +22,5 @@ Run the program one first time to set the configs
 
 ## e-SIM usage
 
-You can try to to create a sim from my e-sim https://jmp.chat/esim-adapter
+You can  buy a EUICC sim card from [AliExpress](https://aliexpress.com/item/1005008298268854.html) and a USB reader from [AliExpress](https://aliexpress.com/item/4000618742328.html).
+and use the https://github.com/EsimMoe/MiniLPA to create a e-sim profile. So we can use the your e-sim as sim card within the modem.
