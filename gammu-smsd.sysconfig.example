@@ -1,0 +1,8 @@
+# Copy to /etc/sysconfig/gammu-smsd (RHEL/Fedora) or set the same variables in a
+# systemd drop-in, e.g. /etc/systemd/system/gammu-smsd.service.d/override.conf
+#
+# GAMMU_CONFIG_FILE must point to your real Gammu config (not the .example template).
+# Typical: copy gammurc.example to /etc/gammurc and set paths inside it, then:
+GAMMU_CONFIG_FILE=/etc/gammurc
+GAMMU_USER=gammu
+GAMMU_GROUP=gammu

@@ -1,3 +1,6 @@
+# Copy to /etc/gammurc (or another path) and pass it to gammu-smsd -c, or set
+# GAMMU_CONFIG_FILE in systemd. Gammu does not load this filename automatically.
+
 [gammu]
 device = /dev/ttyUSB0
 name = HUAWEI
@@ -11,9 +14,10 @@ service = files
 logfile = smsdlog
 # Amount of information being logged, each bit mean one level
 debuglevel = 0
-# Script to be executed when new message has been received
+# gammu-smsd runs: PROGRAM [args...] — then appends the new SMS file path.
+# First arg after the script should be config.pkl; the last arg becomes that path.
 runonreceive = /path/to/home/sms-telegram-bot/.venv/bin/python /path/to/home/sms-telegram-bot/src/sms.py /path/to/home/sms-telegram-bot/src/config.pkl
-# Commication frequency settings
+# Communication frequency settings
 commtimeout = 30
 sendtimeout = 30
 
