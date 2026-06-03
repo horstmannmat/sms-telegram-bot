@@ -172,11 +172,16 @@ generate_configs() {
         # User systemd has no multi-user.target; default.target is the session default.
         sed -i 's|WantedBy=multi-user.target|WantedBy=default.target|g' \
             "${SCRIPT_DIR}/gammu-smsd.service"
-        # User service: keep PID file in the repo (writable without /run).
+        # User service: Type=simple, no --daemon (foreground test showed fork/PIDFile issues).
         local pid_file pid_esc
         pid_file="${SCRIPT_DIR}/gammu-smsd.pid"
         pid_esc="$(escape_sed "$pid_file")"
-        sed -i "s|/run/gammu-smsd.pid|${pid_esc}|g" "${SCRIPT_DIR}/gammu-smsd.service"
+        sed -i 's|^Type=forking|Type=simple|' "${SCRIPT_DIR}/gammu-smsd.service"
+        sed -i '/^PIDFile=/d' "${SCRIPT_DIR}/gammu-smsd.service"
+        sed -i "s|^ExecStart=.*|ExecStart=/usr/bin/gammu-smsd -l -c \${GAMMU_CONFIG_FILE} --pid=${pid_esc}|" \
+            "${SCRIPT_DIR}/gammu-smsd.service"
+        sed -i "s|^ExecStopPost=.*|ExecStopPost=/bin/rm -f ${pid_file}|" \
+            "${SCRIPT_DIR}/gammu-smsd.service"
         sed -i "/^\[Service\]/a StandardError=append:${gammu_err_log_esc}" \
             "${SCRIPT_DIR}/gammu-smsd.service"
     fi
@@ -197,22 +202,18 @@ create_sms_dirs() {
         "${SCRIPT_DIR}/sms/error"
 }
 
-# Print path to a non-empty config.pkl, or return 1 if none exists.
+# Print path to a non-empty config.pkl at repo root, or return 1 if none exists.
 config_pkl_path() {
-    local candidate
-    for candidate in \
-        "${SCRIPT_DIR}/src/config.pkl" \
-        "${SCRIPT_DIR}/config.pkl"; do
-        if [[ -s "$candidate" ]]; then
-            echo "$candidate"
-            return 0
-        fi
-    done
+    local config_pkl="${SCRIPT_DIR}/config.pkl"
+    if [[ -s "$config_pkl" ]]; then
+        echo "$config_pkl"
+        return 0
+    fi
     return 1
 }
 
 setup_config_pkl() {
-    local config_pkl="${SCRIPT_DIR}/src/config.pkl"
+    local config_pkl="${SCRIPT_DIR}/config.pkl"
     local inbox="${SCRIPT_DIR}/sms/inbox"
     local vpy existing
     vpy="$(venv_python)"
@@ -299,7 +300,7 @@ start_gammu_smsd() {
         fi
         if [[ "$CONFIG_PKL_READY" != true ]]; then
             warn "config.pkl missing — create it for Telegram forwarding to work."
-            info "  .venv/bin/python src/models/configuration.py ${SCRIPT_DIR}/src/config.pkl"
+            info "  .venv/bin/python src/models/configuration.py ${SCRIPT_DIR}/config.pkl"
         fi
         return 0
     fi

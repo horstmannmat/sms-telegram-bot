@@ -9,7 +9,8 @@ connection = at
 [smsd]
 # SMSD service to use, one of FILES, MYSQL, PGSQL, DBI
 service = files
-# PIN for SIM card
+# PIN for SIM card (uncomment and set if your SIM requires it)
+# pin = 1234
 # File (or stderr, syslog, eventlog) where information will be logged.
 # install.sh --user sets an absolute path under <repo>/log/gammu-smsd.log
 logfile = smsdlog
@@ -17,7 +18,7 @@ logfile = smsdlog
 debuglevel = 0
 # gammu-smsd runs: PROGRAM [args...] — then appends the new SMS file path.
 # Use --log for sms.py file logging; omit --log for stderr only. Gammu appends the SMS path last.
-runonreceive = /path/to/home/sms-telegram-bot/.venv/bin/python /path/to/home/sms-telegram-bot/src/sms.py --log /path/to/home/sms-telegram-bot/log/sms.log /path/to/home/sms-telegram-bot/src/config.pkl
+runonreceive = /path/to/home/sms-telegram-bot/.venv/bin/python /path/to/home/sms-telegram-bot/src/sms.py --log /path/to/home/sms-telegram-bot/log/sms.log /path/to/home/sms-telegram-bot/config.pkl
 # Communication frequency settings
 commtimeout = 30
 sendtimeout = 30

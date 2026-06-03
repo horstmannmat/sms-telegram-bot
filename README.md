@@ -29,7 +29,7 @@ The installer:
 2. Recreates `.venv` and runs `pip install .`.
 3. Generates local configs with **absolute paths** (see templates below).
 4. Creates `sms/inbox`, `sms/outbox`, `sms/sent`, `sms/error` under the repo.
-5. Prompts to create `src/config.pkl` interactively (or prints the manual command).
+5. Prompts to create `config.pkl` at the repo root interactively (or prints the manual command).
 6. Enables and starts the `gammu-smsd` systemd unit.
 
 ### Templates vs generated files
@@ -39,14 +39,14 @@ The installer:
 | `gammurc.example` | `gammurc` |
 | `gammu-smsd.sysconfig.example` | `gammu-smsd.sysconfig` |
 | `gammu-smsd.service.example` | `gammu-smsd.service` |
-| — | `src/config.pkl` |
+| — | `config.pkl` (repo root) |
 
 ### Telegram config (`config.pkl`)
 
 If the installer skips interactive setup, run once:
 
 ```bash
-.venv/bin/python src/models/configuration.py "$(pwd)/src/config.pkl"
+.venv/bin/python src/models/configuration.py "$(pwd)/config.pkl"
 ```
 
 Use the recommended inbox path printed by the installer (typically `<repo>/sms/inbox/`).
@@ -110,14 +110,14 @@ After `install.sh`, configs live in the repo (not `/etc/gammurc` by default):
 
 Edit **`device`** in `gammurc` after `gammu-detect` (default `/dev/ttyUSB0`).
 
-`runonreceive` points at `.venv/bin/python`, `src/sms.py`, and `src/config.pkl`. When a message arrives, **gammu-smsd appends the new SMS file path** after those arguments.
+`runonreceive` points at `.venv/bin/python`, `src/sms.py`, and `config.pkl` (repo root). When a message arrives, **gammu-smsd appends the new SMS file path** after those arguments.
 
 ### systemd
 
 **User mode** (`./install.sh --user`):
 
-- Unit: `~/.config/systemd/user/gammu-smsd.service` (`WantedBy=default.target`, not `multi-user.target`)
-- PID file: `<repo>/gammu-smsd.pid` (not `/run`, so the user service can write it)
+- Unit: `~/.config/systemd/user/gammu-smsd.service` (`WantedBy=default.target`, `Type=simple`, no `--daemon`)
+- PID file: `<repo>/gammu-smsd.pid` (passed to `--pid`; no `PIDFile=` in the unit)
 - Logs (under `<repo>/log/`, gitignored): `gammu-smsd.log`, `gammu-smsd-error.log` (daemon stderr), `sms.log` (`sms.py --log` on `runonreceive`)
 - Status: `systemctl --user status gammu-smsd`
 - USB access: your user must be in `dialout` (or use udev rules for `/dev/ttyUSB*`).
@@ -128,6 +128,25 @@ Edit **`device`** in `gammurc` after `gammu-detect` (default `/dev/ttyUSB0`).
 - Status: `sudo systemctl status gammu-smsd`
 
 To change the template for future installs, edit **`gammu-smsd.service.example`** and re-run `install.sh`. For a one-off fix, edit the generated **`gammu-smsd.service`** or adjust `ExecStart` if `gammu-smsd` is not at `/usr/bin/gammu-smsd`.
+
+### Troubleshooting `gammu-smsd` failed
+
+If `journalctl` mentions **`Can't open PID file '/run/gammu-smsd.pid'`**, the user unit is outdated. Re-run `./install.sh --user` or set `Type=simple`, remove `PIDFile=`, and use:
+
+```ini
+ExecStart=/usr/bin/gammu-smsd -l -c ${GAMMU_CONFIG_FILE} --pid=/home/you/sms-telegram-bot/gammu-smsd.pid
+```
+
+(no `--daemon`, no `--user`/`--group` in a user service)
+
+Test the modem in the foreground (should stay running until Ctrl+C):
+
+```bash
+systemctl --user stop gammu-smsd
+/usr/bin/gammu-smsd -l -c ~/sms-telegram-bot/gammurc -p ~/sms-telegram-bot/gammu-smsd.pid
+```
+
+If the SIM needs a PIN, set `pin = …` under `[gammu]` in `gammurc`. Ensure `groups` includes `dialout` and `device` matches `gammu-detect`.
 
 ### Advanced: system-wide `/etc` paths
 

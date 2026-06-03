@@ -65,7 +65,9 @@ async def main() -> None:
     parser = argparse.ArgumentParser(
         description="Forward Gammu received SMS files to a Telegram chat.",
     )
-    default_config = pathlib.Path(__file__).resolve().parent / "config.pkl"
+    default_config = (
+        pathlib.Path(__file__).resolve().parent.parent / "config.pkl"
+    )
     parser.add_argument(
         "--log",
         metavar="PATH",
