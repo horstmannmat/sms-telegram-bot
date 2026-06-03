@@ -1,16 +1,22 @@
 #!/usr/bin/env bash
-# Install sms-telegram-bot: venv, configs, optional config.pkl, systemd unit.
+# Install or uninstall sms-telegram-bot (venv, configs, systemd unit).
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR"
 
 INSTALL_USER_MODE=false
+UNINSTALL_MODE=false
 CONFIG_PKL_READY=false
 for arg in "$@"; do
-    if [[ "$arg" == "--user" ]]; then
-        INSTALL_USER_MODE=true
-    fi
+    case "$arg" in
+        --user)
+            INSTALL_USER_MODE=true
+            ;;
+        --uninstall)
+            UNINSTALL_MODE=true
+            ;;
+    esac
 done
 
 MIN_PYTHON_MAJOR=3
@@ -355,6 +361,65 @@ print_linger_warning() {
     echo ""
 }
 
+uninstall_systemd_unit() {
+    if [[ "$INSTALL_USER_MODE" == true ]]; then
+        local user_unit_dir="${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user"
+        local user_unit="${user_unit_dir}/gammu-smsd.service"
+        info "Stopping and removing user systemd unit..."
+        systemctl --user stop gammu-smsd.service 2>/dev/null || true
+        systemctl --user disable gammu-smsd.service 2>/dev/null || true
+        rm -f "$user_unit"
+        systemctl --user daemon-reload
+        info "Removed ${user_unit} (if it was installed)."
+    else
+        require_sudo
+        info "Stopping and removing system systemd unit..."
+        "${SUDO_CMD[@]}" systemctl stop gammu-smsd.service 2>/dev/null || true
+        "${SUDO_CMD[@]}" systemctl disable gammu-smsd.service 2>/dev/null || true
+        "${SUDO_CMD[@]}" rm -f /etc/systemd/system/gammu-smsd.service
+        "${SUDO_CMD[@]}" systemctl daemon-reload
+        info "Removed /etc/systemd/system/gammu-smsd.service (if it was installed)."
+    fi
+}
+
+remove_install_artifacts() {
+    info "Removing project install artifacts..."
+    rm -rf "${SCRIPT_DIR}/.venv"
+    rm -f \
+        "${SCRIPT_DIR}/gammurc" \
+        "${SCRIPT_DIR}/gammu-smsd.sysconfig" \
+        "${SCRIPT_DIR}/gammu-smsd.service" \
+        "${SCRIPT_DIR}/gammu-smsd.pid"
+}
+
+print_uninstall_summary() {
+    echo ""
+    info "Uninstall complete."
+    info "  Directory: ${SCRIPT_DIR}"
+    if [[ "$INSTALL_USER_MODE" == true ]]; then
+        info "  Mode:        user (systemctl --user)"
+    else
+        info "  Mode:        system"
+    fi
+    info "  Left in place: config.pkl, sms/, log/ (if present)"
+    info "  Not removed:   python3, gammu, gammu-smsd (system packages)"
+    echo ""
+}
+
+uninstall_main() {
+    if [[ "$INSTALL_USER_MODE" == true ]]; then
+        if ! systemctl --user status >/dev/null 2>&1; then
+            error "systemd user session unavailable. Cannot use --user."
+        fi
+    else
+        require_sudo
+    fi
+
+    uninstall_systemd_unit
+    remove_install_artifacts
+    print_uninstall_summary
+}
+
 print_summary() {
     local vpy
     vpy="$(venv_python)"
@@ -381,9 +446,7 @@ print_summary() {
     echo ""
 }
 
-main() {
-    require_linux
-
+install_main() {
     if [[ "$INSTALL_USER_MODE" == true ]]; then
         if ! systemctl --user status >/dev/null 2>&1; then
             error "systemd user session unavailable. Cannot use --user."
@@ -405,6 +468,16 @@ main() {
     install_systemd_unit
 
     print_summary
+}
+
+main() {
+    require_linux
+
+    if [[ "$UNINSTALL_MODE" == true ]]; then
+        uninstall_main
+    else
+        install_main
+    fi
 }
 
 main "$@"

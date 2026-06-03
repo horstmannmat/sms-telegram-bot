@@ -16,12 +16,18 @@ From the repository root:
 chmod +x install.sh
 ./install.sh          # system service (requires sudo)
 ./install.sh --user   # user service (no sudo for install)
+./install.sh --uninstall          # remove system unit + project artifacts (sudo)
+./install.sh --uninstall --user   # remove user unit + project artifacts (no sudo)
 ```
 
-| Mode | Command | Privilege | Runs as |
-|------|---------|-----------|---------|
-| System | `./install.sh` | `sudo` required | `gammu` / `gammu` (from sysconfig) |
-| User | `./install.sh --user` | No sudo for install | Your login user |
+| Mode | Install | Uninstall | Privilege |
+|------|---------|-----------|-----------|
+| System | `./install.sh` | `./install.sh --uninstall` | `sudo` |
+| User | `./install.sh --user` | `./install.sh --uninstall --user` | no `sudo` |
+
+System install runs the service as `gammu` / `gammu` (from sysconfig). User install runs as your login user.
+
+Uninstall stops and removes the **sms-telegram-bot** systemd unit and deletes `.venv`, generated `gammurc` / sysconfig / service files, and `gammu-smsd.pid`. It does **not** remove `python3`, `gammu`, or `gammu-smsd` (apt packages). **`config.pkl`**, **`sms/`**, and **`log/`** are kept.
 
 The installer:
 
