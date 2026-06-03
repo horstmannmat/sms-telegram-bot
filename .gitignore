@@ -129,4 +129,5 @@ result_from_scripts.txt
 gammurc
 gammu-smsd.sysconfig
 gammu-smsd.service
+gammu-smsd.pid
 sms/

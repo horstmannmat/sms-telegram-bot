@@ -51,6 +51,8 @@ If the installer skips interactive setup, run once:
 
 Use the recommended inbox path printed by the installer (typically `<repo>/sms/inbox/`).
 
+Re-running `./install.sh` (with or without `--user`) runs `daemon-reload` and **restarts** `gammu-smsd` if it is already running, so unit and config changes take effect. A new start only happens when the service was not running and `config.pkl` exists.
+
 If you skipped `config.pkl` during install, the unit is **enabled** but **not started**. After creating `config.pkl` and fixing `device` in `gammurc`:
 
 ```bash
@@ -115,6 +117,7 @@ Edit **`device`** in `gammurc` after `gammu-detect` (default `/dev/ttyUSB0`).
 **User mode** (`./install.sh --user`):
 
 - Unit: `~/.config/systemd/user/gammu-smsd.service` (`WantedBy=default.target`, not `multi-user.target`)
+- PID file: `<repo>/gammu-smsd.pid` (not `/run`, so the user service can write it)
 - Status: `systemctl --user status gammu-smsd`
 - USB access: your user must be in `dialout` (or use udev rules for `/dev/ttyUSB*`).
 

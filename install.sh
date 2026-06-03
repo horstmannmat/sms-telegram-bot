@@ -167,9 +167,9 @@ generate_configs() {
         # User systemd has no multi-user.target; default.target is the session default.
         sed -i 's|WantedBy=multi-user.target|WantedBy=default.target|g' \
             "${SCRIPT_DIR}/gammu-smsd.service"
-        # /run is not writable for user services; use the per-user runtime dir.
+        # User service: keep PID file in the repo (writable without /run).
         local pid_file pid_esc
-        pid_file="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/gammu-smsd.pid"
+        pid_file="${SCRIPT_DIR}/gammu-smsd.pid"
         pid_esc="$(escape_sed "$pid_file")"
         sed -i "s|/run/gammu-smsd.pid|${pid_esc}|g" "${SCRIPT_DIR}/gammu-smsd.service"
     fi
@@ -190,14 +190,28 @@ create_sms_dirs() {
         "${SCRIPT_DIR}/sms/error"
 }
 
+# Print path to a non-empty config.pkl, or return 1 if none exists.
+config_pkl_path() {
+    local candidate
+    for candidate in \
+        "${SCRIPT_DIR}/src/config.pkl" \
+        "${SCRIPT_DIR}/config.pkl"; do
+        if [[ -s "$candidate" ]]; then
+            echo "$candidate"
+            return 0
+        fi
+    done
+    return 1
+}
+
 setup_config_pkl() {
     local config_pkl="${SCRIPT_DIR}/src/config.pkl"
     local inbox="${SCRIPT_DIR}/sms/inbox"
-    local vpy
+    local vpy existing
     vpy="$(venv_python)"
 
-    if [[ -f "$config_pkl" ]]; then
-        info "config.pkl already exists at ${config_pkl}"
+    if existing="$(config_pkl_path)"; then
+        info "config.pkl already present at ${existing} — skipping setup."
         CONFIG_PKL_READY=true
         return 0
     fi
@@ -231,10 +245,56 @@ setup_config_pkl() {
     CONFIG_PKL_READY=true
 }
 
+gammu_smsd_is_active() {
+    if [[ "$INSTALL_USER_MODE" == true ]]; then
+        systemctl --user is-active --quiet gammu-smsd.service 2>/dev/null
+    else
+        "${SUDO_CMD[@]}" systemctl is-active --quiet gammu-smsd.service 2>/dev/null
+    fi
+}
+
+gammu_smsd_status_hint() {
+    if [[ "$INSTALL_USER_MODE" == true ]]; then
+        echo "systemctl --user status gammu-smsd"
+    else
+        echo "sudo systemctl status gammu-smsd"
+    fi
+}
+
+gammu_smsd_restart_hint() {
+    if [[ "$INSTALL_USER_MODE" == true ]]; then
+        echo "systemctl --user restart gammu-smsd"
+    else
+        echo "sudo systemctl restart gammu-smsd"
+    fi
+}
+
 start_gammu_smsd() {
-    local ctl_start=(systemctl start gammu-smsd.service)
-    if [[ "$INSTALL_USER_MODE" != true ]]; then
+    local ctl_start ctl_restart was_active=false
+    if [[ "$INSTALL_USER_MODE" == true ]]; then
+        ctl_start=(systemctl --user start gammu-smsd.service)
+        ctl_restart=(systemctl --user restart gammu-smsd.service)
+    else
         ctl_start=("${SUDO_CMD[@]}" systemctl start gammu-smsd.service)
+        ctl_restart=("${SUDO_CMD[@]}" systemctl restart gammu-smsd.service)
+    fi
+
+    if gammu_smsd_is_active; then
+        was_active=true
+    fi
+
+    # Running service (--user or system): always restart after daemon-reload above.
+    if [[ "$was_active" == true ]]; then
+        info "gammu-smsd already running — restarting to apply unit/config changes (timeout 90s)..."
+        if ! timeout 90 "${ctl_restart[@]}"; then
+            warn "gammu-smsd restart timed out (modem missing or gammurc device wrong?)."
+            info "Check: $(gammu_smsd_status_hint)"
+        fi
+        if [[ "$CONFIG_PKL_READY" != true ]]; then
+            warn "config.pkl missing — create it for Telegram forwarding to work."
+            info "  .venv/bin/python src/models/configuration.py ${SCRIPT_DIR}/src/config.pkl"
+        fi
+        return 0
     fi
 
     if [[ "$CONFIG_PKL_READY" != true ]]; then
@@ -250,29 +310,27 @@ start_gammu_smsd() {
     info "Starting gammu-smsd (timeout 90s)..."
     if ! timeout 90 "${ctl_start[@]}"; then
         warn "gammu-smsd did not start in time (modem missing or gammurc device wrong?)."
-        if [[ "$INSTALL_USER_MODE" == true ]]; then
-            info "Check: systemctl --user status gammu-smsd"
-        else
-            info "Check: sudo systemctl status gammu-smsd"
-        fi
+        info "Check: $(gammu_smsd_status_hint)"
     fi
 }
 
-install_systemd_user() {
-    local user_unit_dir="${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user"
-    info "Installing user systemd unit..."
-    mkdir -p "$user_unit_dir"
-    cp "${SCRIPT_DIR}/gammu-smsd.service" "${user_unit_dir}/gammu-smsd.service"
-    systemctl --user daemon-reload
-    systemctl --user enable gammu-smsd.service
-    start_gammu_smsd
-}
-
-install_systemd_system() {
-    info "Installing system systemd unit..."
-    "${SUDO_CMD[@]}" cp "${SCRIPT_DIR}/gammu-smsd.service" /etc/systemd/system/gammu-smsd.service
-    "${SUDO_CMD[@]}" systemctl daemon-reload
-    "${SUDO_CMD[@]}" systemctl enable gammu-smsd.service
+install_systemd_unit() {
+    if [[ "$INSTALL_USER_MODE" == true ]]; then
+        local user_unit_dir="${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user"
+        info "Installing user systemd unit..."
+        mkdir -p "$user_unit_dir"
+        cp "${SCRIPT_DIR}/gammu-smsd.service" "${user_unit_dir}/gammu-smsd.service"
+        systemctl --user daemon-reload
+        systemctl --user enable gammu-smsd.service
+        info "Reloaded user systemd units."
+    else
+        info "Installing system systemd unit..."
+        "${SUDO_CMD[@]}" cp "${SCRIPT_DIR}/gammu-smsd.service" \
+            /etc/systemd/system/gammu-smsd.service
+        "${SUDO_CMD[@]}" systemctl daemon-reload
+        "${SUDO_CMD[@]}" systemctl enable gammu-smsd.service
+        info "Reloaded system systemd units."
+    fi
     start_gammu_smsd
 }
 
@@ -336,11 +394,7 @@ main() {
     create_sms_dirs
     setup_config_pkl
 
-    if [[ "$INSTALL_USER_MODE" == true ]]; then
-        install_systemd_user
-    else
-        install_systemd_system
-    fi
+    install_systemd_unit
 
     print_summary
 }
