@@ -13,6 +13,30 @@ from models import Configuration, SMSBot
 logger = logging.getLogger(__name__)
 
 
+def setup_logging(log_file: Optional[str] = None) -> None:
+    if not log_file:
+        logging.basicConfig(level=logging.DEBUG)
+        return
+
+    log_path = pathlib.Path(log_file)
+    log_path.parent.mkdir(parents=True, exist_ok=True)
+
+    log_format = "%(asctime)s %(levelname)s %(name)s: %(message)s"
+    root = logging.getLogger()
+    root.handlers.clear()
+    root.setLevel(logging.DEBUG)
+
+    file_handler = logging.FileHandler(log_path, encoding="utf-8")
+    file_handler.setFormatter(logging.Formatter(log_format))
+    root.addHandler(file_handler)
+
+    stream_handler = logging.StreamHandler(sys.stderr)
+    stream_handler.setFormatter(logging.Formatter(log_format))
+    root.addHandler(stream_handler)
+
+    logger.debug("Logging to %s", log_path)
+
+
 def _read_one_sms_file(txt_file: pathlib.Path) -> str:
     logger.debug("Reading SMS from %s", txt_file)
     with open(txt_file, "r", encoding="utf-8") as f:
@@ -43,6 +67,12 @@ async def main() -> None:
     )
     default_config = pathlib.Path(__file__).resolve().parent / "config.pkl"
     parser.add_argument(
+        "--log",
+        metavar="PATH",
+        default=None,
+        help="Also write logs to this file (default: stderr only).",
+    )
+    parser.add_argument(
         "config",
         nargs="?",
         default=str(default_config),
@@ -54,6 +84,7 @@ async def main() -> None:
         help="Path to the new SMS file (appended by gammu-smsd runonreceive).",
     )
     args = parser.parse_args()
+    setup_logging(args.log)
 
     config_file = args.config
     if not pathlib.Path(config_file).exists():
@@ -79,7 +110,6 @@ async def main() -> None:
 
 
 def main_cli() -> None:
-    logging.basicConfig(level=logging.DEBUG)
     asyncio.run(main())
 
 

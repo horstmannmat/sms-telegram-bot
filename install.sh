@@ -152,12 +152,17 @@ generate_configs() {
 
     if [[ "$INSTALL_USER_MODE" == true ]]; then
         local user_name group_name user_esc group_esc
+        local gammu_log_esc gammu_err_log_esc sms_log_esc
+        mkdir -p "${SCRIPT_DIR}/log"
         user_name="${USER:-$(whoami)}"
         group_name="$(id -gn "$user_name")"
         user_esc="$(escape_sed "$user_name")"
         group_esc="$(escape_sed "$group_name")"
+        gammu_log_esc="$(escape_sed "${SCRIPT_DIR}/log/gammu-smsd.log")"
+        gammu_err_log_esc="$(escape_sed "${SCRIPT_DIR}/log/gammu-smsd-error.log")"
         sed -i "s|^GAMMU_USER=.*|GAMMU_USER=${user_esc}|g" "${SCRIPT_DIR}/gammu-smsd.sysconfig"
         sed -i "s|^GAMMU_GROUP=.*|GAMMU_GROUP=${group_esc}|g" "${SCRIPT_DIR}/gammu-smsd.sysconfig"
+        sed -i "s|^logfile = .*|logfile = ${gammu_log_esc}|g" "${SCRIPT_DIR}/gammurc"
     fi
 
     cp "${SCRIPT_DIR}/gammu-smsd.service.example" "${SCRIPT_DIR}/gammu-smsd.service"
@@ -172,6 +177,8 @@ generate_configs() {
         pid_file="${SCRIPT_DIR}/gammu-smsd.pid"
         pid_esc="$(escape_sed "$pid_file")"
         sed -i "s|/run/gammu-smsd.pid|${pid_esc}|g" "${SCRIPT_DIR}/gammu-smsd.service"
+        sed -i "/^\[Service\]/a StandardError=append:${gammu_err_log_esc}" \
+            "${SCRIPT_DIR}/gammu-smsd.service"
     fi
 
     if grep -qE '\$SCRIPT_DIR|\$\{SCRIPT_DIR\}' \

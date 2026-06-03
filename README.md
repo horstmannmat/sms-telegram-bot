@@ -118,6 +118,7 @@ Edit **`device`** in `gammurc` after `gammu-detect` (default `/dev/ttyUSB0`).
 
 - Unit: `~/.config/systemd/user/gammu-smsd.service` (`WantedBy=default.target`, not `multi-user.target`)
 - PID file: `<repo>/gammu-smsd.pid` (not `/run`, so the user service can write it)
+- Logs (under `<repo>/log/`, gitignored): `gammu-smsd.log`, `gammu-smsd-error.log` (daemon stderr), `sms.log` (`sms.py --log` on `runonreceive`)
 - Status: `systemctl --user status gammu-smsd`
 - USB access: your user must be in `dialout` (or use udev rules for `/dev/ttyUSB*`).
 
