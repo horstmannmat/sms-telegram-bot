@@ -41,6 +41,10 @@ warn() {
     echo "warning: $*" >&2
 }
 
+use_color() {
+    [[ -t 1 ]]
+}
+
 escape_sed() {
     printf '%s' "$1" | sed -e 's/[\\|&]/\\&/g'
 }
@@ -349,15 +353,25 @@ install_systemd_unit() {
 }
 
 print_linger_warning() {
+    local yellow cyan bold reset user_name
+    user_name="${USER:-$(whoami)}"
+    if use_color; then
+        yellow=$'\033[1;33m'
+        cyan=$'\033[0;36m'
+        bold=$'\033[1m'
+        reset=$'\033[0m'
+    else
+        yellow="" cyan="" bold="" reset=""
+    fi
     echo ""
-    echo "================================================================"
-    echo " IMPORTANT: Enable user lingering for gammu-smsd after logout"
+    echo "${yellow}================================================================${reset}"
+    echo "${bold}${yellow} IMPORTANT: Enable user lingering for gammu-smsd after logout${reset}"
     echo ""
-    echo "   sudo loginctl enable-linger ${USER:-$(whoami)}"
+    echo "   ${cyan}sudo loginctl enable-linger ${user_name}${reset}"
     echo ""
-    echo " Without this, the user-level gammu-smsd service stops when"
-    echo " you log out."
-    echo "================================================================"
+    echo "${yellow} Without this, the user-level gammu-smsd service stops when${reset}"
+    echo "${yellow} you log out.${reset}"
+    echo "${yellow}================================================================${reset}"
     echo ""
 }
 
