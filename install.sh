@@ -162,6 +162,11 @@ generate_configs() {
     cp "${SCRIPT_DIR}/gammu-smsd.service.example" "${SCRIPT_DIR}/gammu-smsd.service"
     sed -i "s|EnvironmentFile=-/etc/sysconfig/gammu-smsd|EnvironmentFile=-${sysconfig_esc}|g" \
         "${SCRIPT_DIR}/gammu-smsd.service"
+    if [[ "$INSTALL_USER_MODE" == true ]]; then
+        # User systemd has no multi-user.target; default.target is the session default.
+        sed -i 's|WantedBy=multi-user.target|WantedBy=default.target|g' \
+            "${SCRIPT_DIR}/gammu-smsd.service"
+    fi
 
     if grep -qE '\$SCRIPT_DIR|\$\{SCRIPT_DIR\}' \
         "${SCRIPT_DIR}/gammurc" \

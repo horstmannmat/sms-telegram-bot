@@ -15,4 +15,5 @@ PIDFile=/run/gammu-smsd.pid
 PrivateTmp=yes
 
 [Install]
+# System install: multi-user.target. install.sh --user rewrites to default.target.
 WantedBy=multi-user.target

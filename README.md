@@ -107,7 +107,7 @@ Edit **`device`** in `gammurc` after `gammu-detect` (default `/dev/ttyUSB0`).
 
 **User mode** (`./install.sh --user`):
 
-- Unit: `~/.config/systemd/user/gammu-smsd.service`
+- Unit: `~/.config/systemd/user/gammu-smsd.service` (`WantedBy=default.target`, not `multi-user.target`)
 - Status: `systemctl --user status gammu-smsd`
 - USB access: your user must be in `dialout` (or use udev rules for `/dev/ttyUSB*`).
 
