@@ -51,6 +51,13 @@ If the installer skips interactive setup, run once:
 
 Use the recommended inbox path printed by the installer (typically `<repo>/sms/inbox/`).
 
+If you skipped `config.pkl` during install, the unit is **enabled** but **not started**. After creating `config.pkl` and fixing `device` in `gammurc`:
+
+```bash
+systemctl --user start gammu-smsd   # --user install
+# or: sudo systemctl start gammu-smsd
+```
+
 ### User install: enable linger
 
 After `./install.sh --user`, run:
