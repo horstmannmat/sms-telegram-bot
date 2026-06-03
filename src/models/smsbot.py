@@ -2,6 +2,7 @@
 from __future__ import absolute_import, annotations, print_function
 
 import logging
+from typing import Optional
 
 import telegram
 
@@ -11,7 +12,7 @@ logger = logging.getLogger(__name__)
 # pylint: disable=too-few-public-methods
 class SMSBot:
     bot: telegram.Bot = None
-    token: str = None
+    token: Optional[str] = None
 
     def __init__(self, token: str = None):
         self.token = token

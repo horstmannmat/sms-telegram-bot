@@ -4,14 +4,15 @@ from __future__ import absolute_import, annotations, print_function
 import logging
 import pickle
 from pathlib import Path
+from typing import Optional
 
 logger = logging.getLogger(__name__)
 
 
 class Configuration:
-    chat_id: str = None
-    token: str = None
-    inbox_folder: str = None
+    chat_id: Optional[str] = None
+    token: Optional[str] = None
+    inbox_folder: Optional[str] = None
 
     def __init__(self, file_path: str = "config.pkl"):
         self.file_path = file_path
@@ -56,3 +57,11 @@ class Configuration:
         # Don't pickle file_path
         with open(file_path, "wb") as config_file:
             pickle.dump(self, config_file)
+
+
+if __name__ == "__main__":
+    import sys
+
+    logging.basicConfig(level=logging.INFO)
+    config_path = sys.argv[1] if len(sys.argv) > 1 else "config.pkl"
+    Configuration(config_path)

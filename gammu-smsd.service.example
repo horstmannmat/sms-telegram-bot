@@ -1,12 +1,12 @@
 [Unit]
 Description=SMS daemon for Gammu
 Documentation=man:gammu-smsd(1)
-After=mysql.service postgresql.service network-online.target
+After=network-online.target
 
 [Service]
 EnvironmentFile=-/etc/sysconfig/gammu-smsd
 # GAMMU_USER, GAMMU_GROUP, GAMMU_CONFIG_FILE — see gammu-smsd.sysconfig.example
-# Run daemon as non-root user (set user/group in /etc/sysconfig/gammu-smsd)
+# Run daemon as non-root user (set user/group in gammu-smsd.sysconfig)
 ExecStart=/usr/bin/gammu-smsd --user=${GAMMU_USER} --group=${GAMMU_GROUP} -c ${GAMMU_CONFIG_FILE} --pid=/run/gammu-smsd.pid --daemon
 ExecReload=/bin/kill -HUP $MAINPID
 ExecStopPost=/bin/rm -f /run/gammu-smsd.pid
