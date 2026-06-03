@@ -6,6 +6,7 @@ import asyncio
 import logging
 import pathlib
 import sys
+import time
 from typing import Optional
 
 from models import Configuration, SMSBot
@@ -21,6 +22,13 @@ def setup_logging(log_file: Optional[str] = None) -> None:
     log_path = pathlib.Path(log_file)
     log_path.parent.mkdir(parents=True, exist_ok=True)
 
+    archived = None
+    if log_path.exists():
+        archived = (
+            log_path.parent / f"{log_path.name}_{int(time.time())}.log.old"
+        )
+        log_path.rename(archived)
+
     log_format = "%(asctime)s %(levelname)s %(name)s: %(message)s"
     root = logging.getLogger()
     root.handlers.clear()
@@ -34,6 +42,8 @@ def setup_logging(log_file: Optional[str] = None) -> None:
     stream_handler.setFormatter(logging.Formatter(log_format))
     root.addHandler(stream_handler)
 
+    if archived is not None:
+        logger.debug("Previous log moved to %s", archived)
     logger.debug("Logging to %s", log_path)
 
 
