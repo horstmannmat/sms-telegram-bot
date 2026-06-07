@@ -33,6 +33,8 @@ class Configuration:
             logger.debug("Loaded config: %s", tmp_config_dict)
 
             self.__dict__.update(tmp_config_dict)
+            if self.inbox_folder:
+                self.inbox_folder = self.inbox_folder.strip()
 
         write_config = False
         if not self.token:
@@ -46,7 +48,7 @@ class Configuration:
         if not self.inbox_folder:
             self.inbox_folder = input(
                 "Enter the full path your Inbox Folder: "
-            )
+            ).strip()
             write_config = True
 
         if write_config:

@@ -55,16 +55,30 @@ def _read_one_sms_file(txt_file: pathlib.Path) -> str:
     return content
 
 
+def _resolve_gammu_sms_path(
+    inbox: pathlib.Path, gammu_sms_file: str
+) -> Optional[pathlib.Path]:
+    raw = pathlib.Path(gammu_sms_file.strip())
+    if raw.is_file():
+        return raw
+    under_inbox = inbox / raw.name
+    if under_inbox.is_file():
+        return under_inbox
+    logger.error(
+        "SMS file from gammu not found: %s (also checked %s)",
+        raw,
+        under_inbox,
+    )
+    return None
+
+
 def collect_sms_paths(
     inbox_folder: str, gammu_sms_file: Optional[str]
 ) -> list[pathlib.Path]:
-    inbox = pathlib.Path(inbox_folder)
+    inbox = pathlib.Path(inbox_folder.strip())
     if gammu_sms_file:
-        path = pathlib.Path(gammu_sms_file)
-        if not path.is_file():
-            logger.error("SMS file from gammu not found: %s", path)
-            return []
-        return [path]
+        path = _resolve_gammu_sms_path(inbox, gammu_sms_file)
+        return [path] if path else []
     paths = sorted(inbox.glob("*.txt"))
     if not paths:
         logger.debug("No SMS files in %s", inbox)
@@ -118,7 +132,7 @@ async def main() -> None:
             logger.exception("Failed to forward SMS from %s", txt_file)
             raise
         logger.debug("Deleting %s", txt_file)
-        pathlib.Path.unlink(txt_file)
+        txt_file.unlink()
 
 
 def main_cli() -> None:
