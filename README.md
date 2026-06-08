@@ -116,7 +116,7 @@ After `install.sh`, configs live in the repo (not `/etc/gammurc` by default):
 
 Edit **`device`** in `gammurc` after `gammu-detect` (default `/dev/ttyUSB0`).
 
-`runonreceive` points at `.venv/bin/python`, `src/sms.py`, and `config.pkl` (repo root). When a message arrives, **gammu-smsd appends the new SMS file path** after those arguments.
+`runonreceive` points at `.venv/bin/python`, `src/sms.py`, and `config.pkl` (repo root). When a message arrives, **gammu-smsd appends the new SMS filename** (basename under `inboxpath`); `sms.py` resolves it using `inbox_folder` from `config.pkl`.
 
 ### systemd
 

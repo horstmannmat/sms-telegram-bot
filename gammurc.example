@@ -16,7 +16,7 @@ service = files
 logfile = smsdlog
 # Amount of information being logged, each bit mean one level
 debuglevel = 0
-# gammu-smsd runs: PROGRAM [args...] — then appends the new SMS file path.
+# gammu-smsd runs: PROGRAM [args...] — then appends the new SMS filename (under inboxpath).
 # Use --log for sms.py file logging; omit --log for stderr only. Gammu appends the SMS path last.
 runonreceive = /path/to/home/sms-telegram-bot/.venv/bin/python /path/to/home/sms-telegram-bot/src/sms.py --log /path/to/home/sms-telegram-bot/log/sms.log /path/to/home/sms-telegram-bot/config.pkl
 # Communication frequency settings
