@@ -34,7 +34,7 @@ The installer:
 1. Checks Python >= 3.10 and `gammu-smsd` (system mode installs missing packages via `apt` when possible).
 2. Recreates `.venv` and runs `pip install .`.
 3. Generates local configs with **absolute paths** and sets `device` in `gammurc` via **`gammu-detect`** (fallback: second `/dev/ttyUSB*` or `/dev/ttyACM*`, since the first is often not the AT port).
-4. Creates `sms/inbox`, `sms/outbox`, `sms/sent`, `sms/error` under the repo.
+4. Creates `sms/inbox`, `sms/read`, `sms/outbox`, `sms/sent`, `sms/error` under the repo.
 5. Prompts to create `config.pkl` at the repo root interactively (or prints the manual command).
 6. Enables and starts the `gammu-smsd` systemd unit.
 

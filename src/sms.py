@@ -53,6 +53,18 @@ def setup_logging(log_file: Optional[str] = None) -> None:
     logger.debug("Logging to %s and %s", log_path, error_log_path)
 
 
+def _move_to_read(txt_file: pathlib.Path) -> pathlib.Path:
+    read_dir = txt_file.parent.parent / "read"
+    dest = read_dir / txt_file.name
+    if dest.exists():
+        dest = (
+            read_dir
+            / f"{txt_file.stem}_{txt_file.stat().st_mtime_ns}{txt_file.suffix}"
+        )
+    txt_file.rename(dest)
+    return dest
+
+
 def _decode_gammu_backup_hex(hex_str: str) -> str:
     hex_str = hex_str.replace(" ", "")
     if not hex_str:
@@ -215,8 +227,8 @@ async def main() -> None:
         except Exception:
             logger.exception("Failed to forward SMS from %s", txt_file)
             raise
-        logger.debug("Deleting %s", txt_file)
-        txt_file.unlink()
+        moved = _move_to_read(txt_file)
+        logger.debug("Moved %s to %s", txt_file.name, moved)
 
 
 def main_cli() -> None:

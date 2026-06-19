@@ -272,6 +272,7 @@ generate_configs() {
 create_sms_dirs() {
     mkdir -p \
         "${SCRIPT_DIR}/sms/inbox" \
+        "${SCRIPT_DIR}/sms/read" \
         "${SCRIPT_DIR}/sms/outbox" \
         "${SCRIPT_DIR}/sms/sent" \
         "${SCRIPT_DIR}/sms/error"
