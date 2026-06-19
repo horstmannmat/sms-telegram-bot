@@ -278,6 +278,57 @@ create_sms_dirs() {
         "${SCRIPT_DIR}/sms/error"
 }
 
+stop_gammu_smsd_if_active() {
+    if ! gammu_smsd_is_active; then
+        return 0
+    fi
+    info "Stopping gammu-smsd for install cleanup..."
+    if [[ "$INSTALL_USER_MODE" == true ]]; then
+        systemctl --user stop gammu-smsd.service 2>/dev/null || true
+    else
+        "${SUDO_CMD[@]}" systemctl stop gammu-smsd.service 2>/dev/null || true
+    fi
+}
+
+archive_log_files() {
+    local log_dir="${SCRIPT_DIR}/log"
+    local epoch log_file base archived
+
+    mkdir -p "$log_dir"
+    epoch="$(date +%s)"
+
+    shopt -s nullglob
+    for log_file in "${log_dir}"/*.log; do
+        base="$(basename "$log_file" .log)"
+        archived="${log_dir}/${base}.${epoch}.log.old"
+        info "Archiving ${log_file} -> ${archived}"
+        mv "$log_file" "$archived"
+    done
+    shopt -u nullglob
+}
+
+clear_inbox_spool() {
+    local inbox="${SCRIPT_DIR}/sms/inbox"
+    local count=0 f
+
+    mkdir -p "$inbox"
+    shopt -s nullglob
+    for f in "${inbox}"/*.txt; do
+        rm -f "$f"
+        count=$((count + 1))
+    done
+    shopt -u nullglob
+    if [[ "$count" -gt 0 ]]; then
+        info "Removed ${count} file(s) from sms/inbox/"
+    fi
+}
+
+prepare_install_state() {
+    stop_gammu_smsd_if_active
+    archive_log_files
+    clear_inbox_spool
+}
+
 # Print path to a non-empty config.pkl at repo root, or return 1 if none exists.
 config_pkl_path() {
     local config_pkl="${SCRIPT_DIR}/config.pkl"
@@ -540,6 +591,7 @@ install_main() {
     ensure_gammu_smsd
 
     info "Using Python: ${py}"
+    prepare_install_state
     setup_venv "$py"
     generate_configs
     create_sms_dirs
