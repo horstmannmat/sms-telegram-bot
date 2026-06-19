@@ -147,6 +147,67 @@ venv_python() {
     echo "$vpy"
 }
 
+# Prefer gammu-detect [gammu] device; else second /dev/ttyUSB* or /dev/ttyACM* (first is often not AT).
+_fallback_serial_device() {
+    local -a devices=()
+    shopt -s nullglob
+    devices=(/dev/ttyUSB* /dev/ttyACM*)
+    shopt -u nullglob
+    if [[ ${#devices[@]} -ge 2 ]]; then
+        printf '%s' "${devices[1]}"
+        return 0
+    fi
+    if [[ ${#devices[@]} -eq 1 ]]; then
+        warn "Only one serial port found; using ${devices[0]}."
+        printf '%s' "${devices[0]}"
+        return 0
+    fi
+    return 1
+}
+
+detect_gammu_device() {
+    local detect_out device
+    if command -v gammu-detect >/dev/null 2>&1; then
+        detect_out="$(gammu-detect 2>/dev/null || true)"
+        device="$(
+            printf '%s\n' "$detect_out" | awk '
+                /^\[gammu\]$/ { in_gammu=1; next }
+                /^\[/ { in_gammu=0 }
+                in_gammu && /^device = / {
+                    sub(/^device = /, "")
+                    print
+                    exit
+                }
+            '
+        )"
+        if [[ -z "$device" ]]; then
+            device="$(printf '%s\n' "$detect_out" | grep -m1 '^device = ' | sed 's/^device = //')"
+        fi
+        device="${device//[[:space:]]/}"
+        if [[ -n "$device" && -e "$device" ]]; then
+            printf '%s' "$device"
+            return 0
+        fi
+        if [[ -n "$device" ]]; then
+            warn "gammu-detect suggested ${device} but that device node is missing."
+        fi
+    fi
+    _fallback_serial_device
+}
+
+apply_gammu_device() {
+    local gammurc="$1"
+    local device device_esc
+    if device="$(detect_gammu_device)"; then
+        info "Modem device: ${device} (from gammu-detect or second /dev serial port)"
+        device_esc="$(escape_sed "$device")"
+        sed -i "s|^device = .*|device = ${device_esc}|g" "$gammurc"
+        return 0
+    fi
+    warn "No modem detected. Plug in the USB modem and re-run install.sh, or edit device in gammurc."
+    return 1
+}
+
 generate_configs() {
     local script_esc sms_esc gammurc_esc sysconfig_esc
     script_esc="$(escape_sed "$SCRIPT_DIR")"
@@ -157,6 +218,7 @@ generate_configs() {
     cp "${SCRIPT_DIR}/gammurc.example" "${SCRIPT_DIR}/gammurc"
     sed -i "s|/path/to/home/sms-telegram-bot|${script_esc}|g" "${SCRIPT_DIR}/gammurc"
     sed -i "s|/path/to/home/sms|${sms_esc}|g" "${SCRIPT_DIR}/gammurc"
+    apply_gammu_device "${SCRIPT_DIR}/gammurc" || true
     chmod 600 "${SCRIPT_DIR}/gammurc"
 
     cp "${SCRIPT_DIR}/gammu-smsd.sysconfig.example" "${SCRIPT_DIR}/gammu-smsd.sysconfig"
@@ -456,7 +518,7 @@ print_summary() {
         info "  Mode:          system (sudo systemctl)"
         info "  Status:        sudo systemctl status gammu-smsd"
     fi
-    info "  Edit device in gammurc if needed (default /dev/ttyUSB0)."
+    info "  Modem device:  see device= in gammurc (set via gammu-detect during install)."
     if [[ "$CONFIG_PKL_READY" != true ]]; then
         warn "  config.pkl: not created — run configuration.py before relying on SMS → Telegram."
     fi

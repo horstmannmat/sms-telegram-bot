@@ -2,6 +2,7 @@
 # GAMMU_CONFIG_FILE in systemd. Gammu does not load this filename automatically.
 
 [gammu]
+# install.sh replaces device via gammu-detect (or second /dev/ttyUSB* /dev/ttyACM*)
 device = /dev/ttyUSB0
 name = HUAWEI
 connection = at
@@ -27,5 +28,6 @@ inboxpath = /path/to/home/sms/inbox/
 outboxpath = /path/to/home/sms/outbox/
 sentsmspath = /path/to/home/sms/sent/
 errorsmspath  = /path/to/home/sms/error/
-inboxformat = standard
+# detail merges multipart SMS into one file (standard emits one file per part)
+inboxformat = detail
 #outboxformat = detail

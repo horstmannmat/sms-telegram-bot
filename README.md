@@ -6,7 +6,7 @@ Python helper that **gammu-smsd** runs when a new SMS arrives. It reads the spoo
 
 - Linux with [Gammu](https://docs.gammu.org/quick/index.html#installing-gammu) and `gammu-smsd`
 - Python 3.10+
-- A USB modem (or compatible radio) recognized as a serial device (often `/dev/ttyUSB0`)
+- A USB modem (or compatible radio) recognized as a serial device (Huawei sticks often use `/dev/ttyUSB1`, not `ttyUSB0`)
 
 ## Install (automated)
 
@@ -33,7 +33,7 @@ The installer:
 
 1. Checks Python >= 3.10 and `gammu-smsd` (system mode installs missing packages via `apt` when possible).
 2. Recreates `.venv` and runs `pip install .`.
-3. Generates local configs with **absolute paths** (see templates below).
+3. Generates local configs with **absolute paths** and sets `device` in `gammurc` via **`gammu-detect`** (fallback: second `/dev/ttyUSB*` or `/dev/ttyACM*`, since the first is often not the AT port).
 4. Creates `sms/inbox`, `sms/outbox`, `sms/sent`, `sms/error` under the repo.
 5. Prompts to create `config.pkl` at the repo root interactively (or prints the manual command).
 6. Enables and starts the `gammu-smsd` systemd unit.
@@ -59,7 +59,7 @@ Use the recommended inbox path printed by the installer (typically `<repo>/sms/i
 
 Re-running `./install.sh` (with or without `--user`) runs `daemon-reload` and **restarts** `gammu-smsd` if it is already running, so unit and config changes take effect. A new start only happens when the service was not running and `config.pkl` exists.
 
-If you skipped `config.pkl` during install, the unit is **enabled** but **not started**. After creating `config.pkl` and fixing `device` in `gammurc`:
+If you skipped `config.pkl` during install, the unit is **enabled** but **not started**. After creating `config.pkl` (re-run `install.sh` with the modem plugged in if `device` in `gammurc` is wrong):
 
 ```bash
 systemctl --user start gammu-smsd   # --user install
@@ -114,7 +114,7 @@ After `install.sh`, configs live in the repo (not `/etc/gammurc` by default):
 - **`gammu-smsd.sysconfig`** — `GAMMU_CONFIG_FILE`, `GAMMU_USER`, `GAMMU_GROUP`
 - **`gammu-smsd.service`** — systemd unit referencing the sysconfig file
 
-Edit **`device`** in `gammurc` after `gammu-detect` (default `/dev/ttyUSB0`).
+**`device`** in `gammurc` is set during `install.sh` from `gammu-detect`. Re-run install with the modem plugged in, or run `gammu-detect` and edit `gammurc` manually.
 
 `runonreceive` points at `.venv/bin/python`, `src/sms.py`, and `config.pkl` (repo root). When a message arrives, **gammu-smsd appends the new SMS filename** (basename under `inboxpath`); `sms.py` resolves it using `inbox_folder` from `config.pkl`.
 
@@ -124,7 +124,7 @@ Edit **`device`** in `gammurc` after `gammu-detect` (default `/dev/ttyUSB0`).
 
 - Unit: `~/.config/systemd/user/gammu-smsd.service` (`WantedBy=default.target`, `Type=simple`, no `--daemon`)
 - PID file: `<repo>/gammu-smsd.pid` (passed to `--pid`; no `PIDFile=` in the unit)
-- Logs (under `<repo>/log/`, gitignored): `gammu-smsd.log`, `gammu-smsd-error.log` (daemon stderr), `sms.log` (`sms.py --log` on `runonreceive`)
+- Logs (under `<repo>/log/`, gitignored): `gammu-smsd.log`, `gammu-smsd-error.log` (daemon stderr), `sms.log` and `sms-error.log` (`sms.py --log` on `runonreceive`)
 - Status: `systemctl --user status gammu-smsd`
 - USB access: your user must be in `dialout` (or use udev rules for `/dev/ttyUSB*`).
 

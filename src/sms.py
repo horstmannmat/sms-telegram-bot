@@ -5,8 +5,8 @@ import argparse
 import asyncio
 import logging
 import pathlib
+import re
 import sys
-import time
 from typing import Optional
 
 from models import Configuration, SMSBot
@@ -14,6 +14,7 @@ from models import Configuration, SMSBot
 logger = logging.getLogger(__name__)
 
 DEFAULT_LOG_LEVEL = logging.INFO
+_SPURIOUS_SMS = re.compile(r"^\$V\d+$", re.IGNORECASE)
 
 
 def setup_logging(log_file: Optional[str] = None) -> None:
@@ -24,29 +25,71 @@ def setup_logging(log_file: Optional[str] = None) -> None:
     log_path = pathlib.Path(log_file)
     log_path.parent.mkdir(parents=True, exist_ok=True)
 
-    archived = None
-    if log_path.exists():
-        archived = (
-            log_path.parent / f"{log_path.name}_{int(time.time())}.log.old"
-        )
-        log_path.rename(archived)
-
     log_format = "%(asctime)s %(levelname)s %(name)s: %(message)s"
+    formatter = logging.Formatter(log_format)
     root = logging.getLogger()
     root.handlers.clear()
     root.setLevel(DEFAULT_LOG_LEVEL)
 
-    file_handler = logging.FileHandler(log_path, encoding="utf-8")
-    file_handler.setFormatter(logging.Formatter(log_format))
+    # Append: gammu-smsd invokes sms.py once per SMS (no log rotation).
+    file_handler = logging.FileHandler(log_path, mode="a", encoding="utf-8")
+    file_handler.setFormatter(formatter)
     root.addHandler(file_handler)
 
+    error_log_path = (
+        log_path.parent / f"{log_path.stem}-error{log_path.suffix}"
+    )
+    error_handler = logging.FileHandler(
+        error_log_path, mode="a", encoding="utf-8"
+    )
+    error_handler.setLevel(logging.ERROR)
+    error_handler.setFormatter(formatter)
+    root.addHandler(error_handler)
+
     stream_handler = logging.StreamHandler(sys.stderr)
-    stream_handler.setFormatter(logging.Formatter(log_format))
+    stream_handler.setFormatter(formatter)
     root.addHandler(stream_handler)
 
-    if archived is not None:
-        logger.debug("Previous log moved to %s", archived)
-    logger.debug("Logging to %s", log_path)
+    logger.debug("Logging to %s and %s", log_path, error_log_path)
+
+
+def _decode_gammu_backup_hex(hex_str: str) -> str:
+    hex_str = hex_str.replace(" ", "")
+    if not hex_str:
+        return ""
+    return bytes.fromhex(hex_str).decode("utf-16-be", errors="replace")
+
+
+def _parse_smsbackup_content(content: str) -> tuple[str, str]:
+    sender = "unknown"
+    text_fields: list[tuple[int, str]] = []
+
+    for line in content.splitlines():
+        if line.startswith("Number = "):
+            sender = line.split("=", 1)[1].strip().strip('"')
+        elif re.match(r"^Text\d+ = ", line):
+            key, value = line.split(" = ", 1)
+            text_fields.append((int(key[4:]), value.strip()))
+        elif line.startswith("#") and len(line) > 1:
+            comment = line[1:].strip()
+            if comment:
+                return sender, comment
+
+    if text_fields:
+        text_fields.sort(key=lambda item: item[0])
+        text = "".join(
+            _decode_gammu_backup_hex(value) for _, value in text_fields
+        )
+        return sender, text.strip()
+
+    return sender, ""
+
+
+def _is_spurious_fragment(text: str) -> bool:
+    stripped = text.strip()
+    if not stripped:
+        return True
+    return bool(_SPURIOUS_SMS.match(stripped))
 
 
 def _sender_from_filename(path: pathlib.Path) -> Optional[str]:
@@ -63,6 +106,11 @@ def _read_one_sms_file(txt_file: pathlib.Path) -> tuple[str, str]:
     logger.debug("Reading SMS from %s", txt_file)
     with open(txt_file, "r", encoding="utf-8") as f:
         content = f.read()
+
+    if "[SMSBackup" in content:
+        sender, text = _parse_smsbackup_content(content)
+        logger.debug("SMS from %s: %s", sender, text)
+        return sender or "unknown", text
 
     sender = _sender_from_filename(txt_file)
     text = content.strip()
@@ -153,10 +201,17 @@ async def main() -> None:
     for txt_file in sms_paths:
         try:
             sender, sms_text = _read_one_sms_file(txt_file)
-            logger.info(
-                "Received Message from %s with Text: %s", sender, sms_text
-            )
-            await bot.send_message(config.chat_id, sms_text)
+            if _is_spurious_fragment(sms_text):
+                logger.info(
+                    "Skipping spurious multipart fragment from %s: %s",
+                    sender,
+                    sms_text,
+                )
+            else:
+                logger.info(
+                    "Received Message from %s with Text: %s", sender, sms_text
+                )
+                await bot.send_message(config.chat_id, sms_text)
         except Exception:
             logger.exception("Failed to forward SMS from %s", txt_file)
             raise
