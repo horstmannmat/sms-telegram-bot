@@ -15,11 +15,18 @@ logger = logging.getLogger(__name__)
 
 DEFAULT_LOG_LEVEL = logging.INFO
 _SPURIOUS_SMS = re.compile(r"^\$V\d+$", re.IGNORECASE)
+_QUIET_LOGGERS = ("httpx", "httpcore", "telegram")
+
+
+def _quiet_library_loggers() -> None:
+    for name in _QUIET_LOGGERS:
+        logging.getLogger(name).setLevel(logging.WARNING)
 
 
 def setup_logging(log_file: Optional[str] = None) -> None:
     if not log_file:
         logging.basicConfig(level=DEFAULT_LOG_LEVEL)
+        _quiet_library_loggers()
         return
 
     log_path = pathlib.Path(log_file)
@@ -50,6 +57,7 @@ def setup_logging(log_file: Optional[str] = None) -> None:
     stream_handler.setFormatter(formatter)
     root.addHandler(stream_handler)
 
+    _quiet_library_loggers()
     logger.debug("Logging to %s and %s", log_path, error_log_path)
 
 
@@ -211,6 +219,7 @@ async def main() -> None:
 
     bot = SMSBot(config.token)
     for txt_file in sms_paths:
+        inbox_path = txt_file.resolve()
         try:
             sender, sms_text = _read_one_sms_file(txt_file)
             if _is_spurious_fragment(sms_text):
@@ -223,12 +232,15 @@ async def main() -> None:
                 logger.info(
                     "Received Message from %s with Text: %s", sender, sms_text
                 )
-                await bot.send_message(config.chat_id, sms_text)
+                chat_label = await bot.send_message(config.chat_id, sms_text)
+                logger.info("Message sent to %s.", chat_label)
         except Exception:
             logger.exception("Failed to forward SMS from %s", txt_file)
             raise
-        moved = _move_to_read(txt_file)
-        logger.debug("Moved %s to %s", txt_file.name, moved)
+        read_path = _move_to_read(txt_file)
+        logger.info(
+            "File Moved from %s to %s", inbox_path, read_path.resolve()
+        )
 
 
 def main_cli() -> None:
