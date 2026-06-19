@@ -13,10 +13,12 @@ from models import Configuration, SMSBot
 
 logger = logging.getLogger(__name__)
 
+DEFAULT_LOG_LEVEL = logging.INFO
+
 
 def setup_logging(log_file: Optional[str] = None) -> None:
     if not log_file:
-        logging.basicConfig(level=logging.DEBUG)
+        logging.basicConfig(level=DEFAULT_LOG_LEVEL)
         return
 
     log_path = pathlib.Path(log_file)
@@ -32,7 +34,7 @@ def setup_logging(log_file: Optional[str] = None) -> None:
     log_format = "%(asctime)s %(levelname)s %(name)s: %(message)s"
     root = logging.getLogger()
     root.handlers.clear()
-    root.setLevel(logging.DEBUG)
+    root.setLevel(DEFAULT_LOG_LEVEL)
 
     file_handler = logging.FileHandler(log_path, encoding="utf-8")
     file_handler.setFormatter(logging.Formatter(log_format))
@@ -47,12 +49,36 @@ def setup_logging(log_file: Optional[str] = None) -> None:
     logger.debug("Logging to %s", log_path)
 
 
-def _read_one_sms_file(txt_file: pathlib.Path) -> str:
+def _sender_from_filename(path: pathlib.Path) -> Optional[str]:
+    # Gammu: IN<date>_<time>_<part>_<number>_<status>.txt
+    if not path.name.startswith("IN") or path.suffix != ".txt":
+        return None
+    parts = path.stem.split("_")
+    if len(parts) < 4:
+        return None
+    return parts[3] or None
+
+
+def _read_one_sms_file(txt_file: pathlib.Path) -> tuple[str, str]:
     logger.debug("Reading SMS from %s", txt_file)
     with open(txt_file, "r", encoding="utf-8") as f:
         content = f.read()
-    logger.debug("SMS: %s", content)
-    return content
+
+    sender = _sender_from_filename(txt_file)
+    text = content.strip()
+
+    for line in content.splitlines():
+        if line.lower().startswith("from:"):
+            sender = line.split(":", 1)[1].strip() or sender
+            break
+
+    if content.lstrip().lower().startswith("from:"):
+        parts = content.split("\n\n", 1)
+        if len(parts) == 2:
+            text = parts[1].strip()
+
+    logger.debug("SMS from %s: %s", sender, text)
+    return sender or "unknown", text
 
 
 def _resolve_gammu_sms_path(
@@ -126,7 +152,10 @@ async def main() -> None:
     bot = SMSBot(config.token)
     for txt_file in sms_paths:
         try:
-            sms_text = _read_one_sms_file(txt_file)
+            sender, sms_text = _read_one_sms_file(txt_file)
+            logger.info(
+                "Received Message from %s with Text: %s", sender, sms_text
+            )
             await bot.send_message(config.chat_id, sms_text)
         except Exception:
             logger.exception("Failed to forward SMS from %s", txt_file)
