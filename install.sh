@@ -56,7 +56,10 @@ require_linux() {
 }
 
 require_sudo() {
-    if ! "${SUDO_CMD[@]}" -v; then
+    if [[ "${EUID}" -eq 0 ]]; then
+        return 0
+    fi
+    if ! sudo -v; then
         error "System install requires sudo. Use ./install.sh --user for a user-level service."
     fi
 }
