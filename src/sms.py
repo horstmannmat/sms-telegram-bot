@@ -80,29 +80,68 @@ def _decode_gammu_backup_hex(hex_str: str) -> str:
     return bytes.fromhex(hex_str).decode("utf-16-be", errors="replace")
 
 
-def _parse_smsbackup_content(content: str) -> tuple[str, str]:
-    sender = "unknown"
-    text_fields: list[tuple[int, str]] = []
+def _parse_udh_seq(udh: str, default_seq: int) -> int:
+    udh = udh.strip()
+    if len(udh) >= 12 and udh.startswith("050003"):
+        try:
+            return int(udh[10:12], 16)
+        except ValueError:
+            return default_seq
+    if len(udh) >= 14 and udh.startswith("060804"):
+        try:
+            return int(udh[12:14], 16)
+        except ValueError:
+            return default_seq
+    return default_seq
+
+
+def _parse_backup_sections(content: str) -> list[dict[str, any]]:
+    sections: list[dict[str, any]] = []
+    current_sec: Optional[dict[str, any]] = None
 
     for line in content.splitlines():
-        if line.startswith("Number = "):
-            sender = line.split("=", 1)[1].strip().strip('"')
-        elif re.match(r"^Text\d+ = ", line):
-            key, value = line.split(" = ", 1)
-            text_fields.append((int(key[4:]), value.strip()))
-        elif line.startswith("#") and len(line) > 1:
-            comment = line[1:].strip()
-            if comment:
-                return sender, comment
+        trimmed = line.strip()
+        if trimmed.startswith("[") and trimmed.endswith("]"):
+            current_sec = {"number": "", "udh": "", "text_fields": []}
+            sections.append(current_sec)
+        elif current_sec is not None:
+            if trimmed.startswith("Number = "):
+                current_sec["number"] = (
+                    trimmed.split("=", 1)[1].strip().strip('"')
+                )
+            elif trimmed.startswith("UDH = "):
+                current_sec["udh"] = trimmed.split("=", 1)[1].strip()
+            elif re.match(r"^Text\d+ = ", trimmed):
+                key, val = trimmed.split(" = ", 1)
+                current_sec["text_fields"].append((int(key[4:]), val.strip()))
 
-    if text_fields:
-        text_fields.sort(key=lambda item: item[0])
-        text = "".join(
-            _decode_gammu_backup_hex(value) for _, value in text_fields
+    return sections
+
+
+def _parse_smsbackup_content(content: str) -> tuple[str, str]:
+    sections = _parse_backup_sections(content)
+    if not sections:
+        return "unknown", ""
+
+    decoded_parts: list[tuple[int, str, str]] = []
+    fallback_sender = "unknown"
+
+    for idx, sec in enumerate(sections):
+        sender = sec.get("number", "")
+        if sender and fallback_sender == "unknown":
+            fallback_sender = sender
+
+        sec["text_fields"].sort(key=lambda item: item[0])
+        part_text = "".join(
+            _decode_gammu_backup_hex(val) for _, val in sec["text_fields"]
         )
-        return sender, text.strip()
+        seq = _parse_udh_seq(sec.get("udh", ""), idx + 1)
+        decoded_parts.append((seq, sender or fallback_sender, part_text))
 
-    return sender, ""
+    decoded_parts.sort(key=lambda item: item[0])
+    final_sender = decoded_parts[0][1] if decoded_parts else fallback_sender
+    combined_text = "".join(part[2] for part in decoded_parts).strip()
+    return final_sender or "unknown", combined_text
 
 
 def _is_spurious_fragment(text: str) -> bool:
