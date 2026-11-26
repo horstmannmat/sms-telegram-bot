@@ -2,7 +2,9 @@
 # GAMMU_CONFIG_FILE in systemd. Gammu does not load this filename automatically.
 
 [gammu]
-# install.sh replaces device via gammu-detect (or second /dev/ttyUSB* /dev/ttyACM*)
+# install.sh prefers a persistent /dev/serial/by-id/... symlink (with Huawei
+# if02 PCUI port preference) so USB re-enumeration does not break the path.
+# Falls back to gammu-detect or /dev/ttyUSB* / /dev/ttyACM*.
 device = /dev/ttyUSB0
 name = HUAWEI
 connection = at
@@ -13,7 +15,7 @@ service = files
 # PIN for SIM card (uncomment and set if your SIM requires it)
 # pin = 1234
 # File (or stderr, syslog, eventlog) where information will be logged.
-# install.sh --user sets an absolute path under <repo>/log/gammu-smsd.log
+# install.sh --user sets <repo>/log/gammu-smsd.log; system mode sets syslog.
 logfile = smsdlog
 # Amount of information being logged, each bit mean one level
 debuglevel = 0
@@ -23,6 +25,8 @@ runonreceive = /path/to/home/sms-telegram-bot/.venv/bin/python /path/to/home/sms
 # Communication frequency settings
 commtimeout = 30
 sendtimeout = 30
+# Optional periodic preventive soft reset in seconds (0 = disabled).
+# resetfrequency = 86400
 
 inboxpath = /path/to/home/sms/inbox/
 outboxpath = /path/to/home/sms/outbox/

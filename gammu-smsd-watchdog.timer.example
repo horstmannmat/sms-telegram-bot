@@ -1,0 +1,10 @@
+[Unit]
+Description=Periodically check gammu-smsd modem health
+
+[Timer]
+OnBootSec=3min
+OnUnitActiveSec=2min
+AccuracySec=30s
+
+[Install]
+WantedBy=timers.target

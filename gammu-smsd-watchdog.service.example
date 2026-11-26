@@ -1,0 +1,7 @@
+[Unit]
+Description=Watchdog for gammu-smsd modem communication
+After=gammu-smsd.service
+
+[Service]
+Type=oneshot
+ExecStart=/path/to/home/sms-telegram-bot/gammu-smsd-watchdog.sh --gammurc /path/to/home/sms-telegram-bot/gammurc

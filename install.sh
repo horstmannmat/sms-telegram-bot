@@ -8,6 +8,9 @@ cd "$SCRIPT_DIR"
 INSTALL_USER_MODE=false
 UNINSTALL_MODE=false
 CONFIG_PKL_READY=false
+DETECTED_DEVICE=""
+UDEV_RULE_NAME="99-gammu-smsd-modem.rules"
+UDEV_RULE_DST="/etc/udev/rules.d/${UDEV_RULE_NAME}"
 for arg in "$@"; do
     case "$arg" in
         --user)
@@ -147,19 +150,86 @@ venv_python() {
     echo "$vpy"
 }
 
-# Prefer gammu-detect [gammu] device; else second /dev/ttyUSB* or /dev/ttyACM* (first is often not AT).
+# Map a raw /dev/ttyUSB* or /dev/ttyACM* path to its persistent /dev/serial/by-id
+# (or /dev/serial/by-path) symlink when available.
+resolve_persistent_device() {
+    local dev="$1"
+    local target link link_target
+    target="$(readlink -f "$dev" 2>/dev/null || printf '%s' "$dev")"
+
+    local dir
+    for dir in /dev/serial/by-id /dev/serial/by-path; do
+        [[ -d "$dir" ]] || continue
+        shopt -s nullglob
+        for link in "${dir}"/*; do
+            link_target="$(readlink -f "$link" 2>/dev/null || true)"
+            if [[ -n "$link_target" && "$link_target" == "$target" ]]; then
+                shopt -u nullglob
+                printf '%s' "$link"
+                return 0
+            fi
+        done
+        shopt -u nullglob
+    done
+
+    printf '%s' "$dev"
+}
+
+# Huawei broadband sticks (e.g. 12d1:1c05) expose multiple serial interfaces where
+# if02 is the PCUI/AT control port (if01 is diagnostic and times out on AT).
+detect_huawei_if02_by_id() {
+    [[ -d /dev/serial/by-id ]] || return 1
+    local link lower
+    shopt -s nullglob
+    for link in /dev/serial/by-id/*; do
+        lower="${link,,}"
+        if [[ "$lower" == *huawei*if02* && -e "$link" ]]; then
+            shopt -u nullglob
+            printf '%s' "$link"
+            return 0
+        fi
+    done
+    shopt -u nullglob
+    return 1
+}
+
+# Fallback when neither Huawei if02 nor gammu-detect yields a device:
+# prefer /dev/serial/by-id/* (if02, else second entry), then /dev/ttyUSB* / /dev/ttyACM*.
 _fallback_serial_device() {
-    local -a devices=()
+    local -a by_id=() devices=()
+    local link lower
+    if [[ -d /dev/serial/by-id ]]; then
+        shopt -s nullglob
+        by_id=(/dev/serial/by-id/*)
+        shopt -u nullglob
+        for link in "${by_id[@]}"; do
+            lower="${link,,}"
+            if [[ "$lower" == *if02* && -e "$link" ]]; then
+                printf '%s' "$link"
+                return 0
+            fi
+        done
+        if [[ ${#by_id[@]} -ge 2 ]]; then
+            printf '%s' "${by_id[1]}"
+            return 0
+        fi
+        if [[ ${#by_id[@]} -eq 1 ]]; then
+            warn "Only one /dev/serial/by-id port found; using ${by_id[0]}."
+            printf '%s' "${by_id[0]}"
+            return 0
+        fi
+    fi
+
     shopt -s nullglob
     devices=(/dev/ttyUSB* /dev/ttyACM*)
     shopt -u nullglob
     if [[ ${#devices[@]} -ge 2 ]]; then
-        printf '%s' "${devices[1]}"
+        resolve_persistent_device "${devices[1]}"
         return 0
     fi
     if [[ ${#devices[@]} -eq 1 ]]; then
         warn "Only one serial port found; using ${devices[0]}."
-        printf '%s' "${devices[0]}"
+        resolve_persistent_device "${devices[0]}"
         return 0
     fi
     return 1
@@ -167,6 +237,20 @@ _fallback_serial_device() {
 
 detect_gammu_device() {
     local detect_out device
+
+    if [[ -n "${GAMMU_DEVICE:-}" ]]; then
+        if [[ -e "$GAMMU_DEVICE" ]]; then
+            printf '%s' "$GAMMU_DEVICE"
+            return 0
+        fi
+        warn "GAMMU_DEVICE=${GAMMU_DEVICE} does not exist; falling back to auto-detection."
+    fi
+
+    if device="$(detect_huawei_if02_by_id)"; then
+        printf '%s' "$device"
+        return 0
+    fi
+
     if command -v gammu-detect >/dev/null 2>&1; then
         detect_out="$(gammu-detect 2>/dev/null || true)"
         device="$(
@@ -185,7 +269,7 @@ detect_gammu_device() {
         fi
         device="${device//[[:space:]]/}"
         if [[ -n "$device" && -e "$device" ]]; then
-            printf '%s' "$device"
+            resolve_persistent_device "$device"
             return 0
         fi
         if [[ -n "$device" ]]; then
@@ -199,7 +283,8 @@ apply_gammu_device() {
     local gammurc="$1"
     local device device_esc
     if device="$(detect_gammu_device)"; then
-        info "Modem device: ${device} (from gammu-detect or second /dev serial port)"
+        DETECTED_DEVICE="$device"
+        info "Modem device: ${device}"
         device_esc="$(escape_sed "$device")"
         sed -i "s|^device = .*|device = ${device_esc}|g" "$gammurc"
         return 0
@@ -208,8 +293,50 @@ apply_gammu_device() {
     return 1
 }
 
+generate_udev_rule() {
+    local vid="12d1" pid="1c05" ifnum="02"
+    local props if_match="" restart_cmd user_name
+    local rule_out="${SCRIPT_DIR}/${UDEV_RULE_NAME}"
+
+    if [[ -n "$DETECTED_DEVICE" && -e "$DETECTED_DEVICE" ]] && command -v udevadm >/dev/null 2>&1; then
+        props="$(udevadm info -q property -n "$DETECTED_DEVICE" 2>/dev/null || true)"
+        local det_vid det_pid det_if
+        det_vid="$(printf '%s\n' "$props" | awk -F= '$1=="ID_VENDOR_ID"{print $2; exit}')"
+        det_pid="$(printf '%s\n' "$props" | awk -F= '$1=="ID_MODEL_ID"{print $2; exit}')"
+        det_if="$(printf '%s\n' "$props" | awk -F= '$1=="ID_USB_INTERFACE_NUM"{print $2; exit}')"
+        if [[ -n "$det_vid" && -n "$det_pid" ]]; then
+            vid="$det_vid"
+            pid="$det_pid"
+            ifnum="$det_if"
+            info "Udev modem match: ${vid}:${pid}${ifnum:+ (if${ifnum})}"
+        fi
+    else
+        info "No USB modem properties detected; defaulting udev rule to Huawei ${vid}:${pid} (if${ifnum})."
+    fi
+
+    if [[ -n "$ifnum" ]]; then
+        if_match=", ENV{ID_USB_INTERFACE_NUM}==\"${ifnum}\""
+    fi
+
+    if [[ "$INSTALL_USER_MODE" == true ]]; then
+        user_name="${USER:-$(whoami)}"
+        restart_cmd="/usr/bin/systemctl --machine=${user_name}@.host --user restart --no-block gammu-smsd.service"
+    else
+        restart_cmd="/usr/bin/systemctl restart --no-block gammu-smsd.service"
+    fi
+
+    cp "${SCRIPT_DIR}/${UDEV_RULE_NAME}.example" "$rule_out"
+    sed -i \
+        -e "s|__VID__|$(escape_sed "$vid")|g" \
+        -e "s|__PID__|$(escape_sed "$pid")|g" \
+        -e "s|__IF_MATCH__|$(escape_sed "$if_match")|g" \
+        -e "s|__RESTART_CMD__|$(escape_sed "$restart_cmd")|g" \
+        "$rule_out"
+}
+
 generate_configs() {
     local script_esc sms_esc gammurc_esc sysconfig_esc
+    local gammu_log_esc gammu_err_log_esc
     script_esc="$(escape_sed "$SCRIPT_DIR")"
     sms_esc="$(escape_sed "${SCRIPT_DIR}/sms")"
     gammurc_esc="$(escape_sed "${SCRIPT_DIR}/gammurc")"
@@ -227,7 +354,6 @@ generate_configs() {
 
     if [[ "$INSTALL_USER_MODE" == true ]]; then
         local user_name group_name user_esc group_esc
-        local gammu_log_esc gammu_err_log_esc sms_log_esc
         mkdir -p "${SCRIPT_DIR}/log"
         user_name="${USER:-$(whoami)}"
         group_name="$(id -gn "$user_name")"
@@ -238,6 +364,9 @@ generate_configs() {
         sed -i "s|^GAMMU_USER=.*|GAMMU_USER=${user_esc}|g" "${SCRIPT_DIR}/gammu-smsd.sysconfig"
         sed -i "s|^GAMMU_GROUP=.*|GAMMU_GROUP=${group_esc}|g" "${SCRIPT_DIR}/gammu-smsd.sysconfig"
         sed -i "s|^logfile = .*|logfile = ${gammu_log_esc}|g" "${SCRIPT_DIR}/gammurc"
+    else
+        # System mode runs as GAMMU_USER (typically 'gammu'); log to syslog instead of /smsdlog.
+        sed -i "s|^logfile = .*|logfile = syslog|g" "${SCRIPT_DIR}/gammurc"
     fi
 
     cp "${SCRIPT_DIR}/gammu-smsd.service.example" "${SCRIPT_DIR}/gammu-smsd.service"
@@ -255,17 +384,29 @@ generate_configs() {
         sed -i '/^PIDFile=/d' "${SCRIPT_DIR}/gammu-smsd.service"
         sed -i "s|^ExecStart=.*|ExecStart=/usr/bin/gammu-smsd -l -c \${GAMMU_CONFIG_FILE} --pid=${pid_esc}|" \
             "${SCRIPT_DIR}/gammu-smsd.service"
-        sed -i "s|^ExecStopPost=.*|ExecStopPost=/bin/rm -f ${pid_file}|" \
+        sed -i "s|^ExecStopPost=.*|ExecStopPost=/bin/rm -f ${pid_esc}|" \
             "${SCRIPT_DIR}/gammu-smsd.service"
         sed -i "/^\[Service\]/a StandardError=append:${gammu_err_log_esc}" \
             "${SCRIPT_DIR}/gammu-smsd.service"
     fi
 
-    if grep -qE '\$SCRIPT_DIR|\$\{SCRIPT_DIR\}' \
+    chmod +x "${SCRIPT_DIR}/gammu-smsd-watchdog.sh"
+    cp "${SCRIPT_DIR}/gammu-smsd-watchdog.service.example" "${SCRIPT_DIR}/gammu-smsd-watchdog.service"
+    sed -i "s|/path/to/home/sms-telegram-bot|${script_esc}|g" "${SCRIPT_DIR}/gammu-smsd-watchdog.service"
+    if [[ "$INSTALL_USER_MODE" == true ]]; then
+        sed -i "s|^ExecStart=.*|ExecStart=${script_esc}/gammu-smsd-watchdog.sh --user --gammurc ${gammurc_esc} --log ${gammu_log_esc}|" \
+            "${SCRIPT_DIR}/gammu-smsd-watchdog.service"
+    fi
+    cp "${SCRIPT_DIR}/gammu-smsd-watchdog.timer.example" "${SCRIPT_DIR}/gammu-smsd-watchdog.timer"
+
+    generate_udev_rule
+
+    if grep -qE '\$SCRIPT_DIR|\$\{SCRIPT_DIR\}|/path/to/home/' \
         "${SCRIPT_DIR}/gammurc" \
         "${SCRIPT_DIR}/gammu-smsd.sysconfig" \
-        "${SCRIPT_DIR}/gammu-smsd.service" 2>/dev/null; then
-        error "Generated configs still contain unresolved SCRIPT_DIR variables."
+        "${SCRIPT_DIR}/gammu-smsd.service" \
+        "${SCRIPT_DIR}/gammu-smsd-watchdog.service" 2>/dev/null; then
+        error "Generated configs still contain unresolved placeholder variables."
     fi
 }
 
@@ -279,6 +420,11 @@ create_sms_dirs() {
 }
 
 stop_gammu_smsd_if_active() {
+    if [[ "$INSTALL_USER_MODE" == true ]]; then
+        systemctl --user stop gammu-smsd-watchdog.timer 2>/dev/null || true
+    else
+        "${SUDO_CMD[@]}" systemctl stop gammu-smsd-watchdog.timer 2>/dev/null || true
+    fi
     if ! gammu_smsd_is_active; then
         return 0
     fi
@@ -287,6 +433,78 @@ stop_gammu_smsd_if_active() {
         systemctl --user stop gammu-smsd.service 2>/dev/null || true
     else
         "${SUDO_CMD[@]}" systemctl stop gammu-smsd.service 2>/dev/null || true
+    fi
+}
+
+cleanup_conflicting_systemd_unit() {
+    if [[ "$INSTALL_USER_MODE" == true ]]; then
+        local has_conflict=false
+        if [[ -e /etc/systemd/system/gammu-smsd.service \
+            || -e /etc/systemd/system/gammu-smsd-watchdog.timer \
+            || -e /etc/systemd/system/gammu-smsd-watchdog.service ]] \
+            || systemctl is-enabled --quiet gammu-smsd.service 2>/dev/null \
+            || systemctl is-active --quiet gammu-smsd.service 2>/dev/null; then
+            has_conflict=true
+        fi
+        [[ "$has_conflict" == true ]] || return 0
+
+        warn "System-level gammu-smsd.service is also installed/enabled."
+        warn "Running both system and --user services causes SysV shared-memory conflicts (Error 13: Permission denied)."
+
+        local do_cleanup=false
+        if [[ "${EUID}" -eq 0 ]] || sudo -n true 2>/dev/null; then
+            do_cleanup=true
+        elif [[ -t 0 ]]; then
+            local reply
+            read -r -p "Disable and remove the conflicting system unit(s) with sudo now? [Y/n] " reply
+            reply="${reply:-Y}"
+            if [[ "$reply" =~ ^[Yy]$ ]]; then
+                do_cleanup=true
+            fi
+        fi
+
+        if [[ "$do_cleanup" == true ]]; then
+            info "Disabling and removing conflicting system gammu-smsd unit(s)..."
+            "${SUDO_CMD[@]}" systemctl disable --now \
+                gammu-smsd.service \
+                gammu-smsd-watchdog.timer \
+                gammu-smsd-watchdog.service 2>/dev/null || true
+            "${SUDO_CMD[@]}" rm -f \
+                /etc/systemd/system/gammu-smsd.service \
+                /etc/systemd/system/gammu-smsd-watchdog.service \
+                /etc/systemd/system/gammu-smsd-watchdog.timer
+            "${SUDO_CMD[@]}" systemctl daemon-reload
+            return 0
+        fi
+
+        error "Conflicting system unit left enabled. Run these commands first, then re-run ./install.sh --user:
+  sudo systemctl disable --now gammu-smsd.service gammu-smsd-watchdog.timer gammu-smsd-watchdog.service
+  sudo rm -f /etc/systemd/system/gammu-smsd.service /etc/systemd/system/gammu-smsd-watchdog.service /etc/systemd/system/gammu-smsd-watchdog.timer
+  sudo systemctl daemon-reload"
+    else
+        local user_home user_unit_dir
+        user_home="$(getent passwd "$RUN_AS_USER" 2>/dev/null | cut -d: -f6 || true)"
+        [[ -n "$user_home" ]] || return 0
+        user_unit_dir="${user_home}/.config/systemd/user"
+        if [[ ! -e "${user_unit_dir}/gammu-smsd.service" \
+            && ! -e "${user_unit_dir}/gammu-smsd-watchdog.timer" \
+            && ! -e "${user_unit_dir}/gammu-smsd-watchdog.service" ]]; then
+            return 0
+        fi
+
+        warn "Found conflicting user-level gammu-smsd unit(s) for ${RUN_AS_USER}; disabling and removing them..."
+        "${SUDO_CMD[@]}" systemctl --machine="${RUN_AS_USER}@.host" --user disable --now \
+            gammu-smsd.service \
+            gammu-smsd-watchdog.timer \
+            gammu-smsd-watchdog.service 2>/dev/null || true
+        "${SUDO_CMD[@]}" rm -f \
+            "${user_unit_dir}/gammu-smsd.service" \
+            "${user_unit_dir}/gammu-smsd-watchdog.service" \
+            "${user_unit_dir}/gammu-smsd-watchdog.timer" \
+            "${user_unit_dir}"/*.wants/gammu-smsd.service \
+            "${user_unit_dir}"/*.wants/gammu-smsd-watchdog.timer \
+            "${user_unit_dir}"/*.wants/gammu-smsd-watchdog.service
+        "${SUDO_CMD[@]}" systemctl --machine="${RUN_AS_USER}@.host" --user daemon-reload 2>/dev/null || true
     fi
 }
 
@@ -324,6 +542,7 @@ clear_inbox_spool() {
 }
 
 prepare_install_state() {
+    cleanup_conflicting_systemd_unit
     stop_gammu_smsd_if_active
     archive_log_files
     clear_inbox_spool
@@ -449,24 +668,63 @@ start_gammu_smsd() {
     fi
 }
 
+install_udev_rule() {
+    local rule_src="${SCRIPT_DIR}/${UDEV_RULE_NAME}"
+    [[ -f "$rule_src" ]] || return 0
+
+    local do_install=false
+    if [[ "$INSTALL_USER_MODE" != true ]]; then
+        do_install=true
+    elif [[ "${EUID}" -eq 0 ]] || sudo -n true 2>/dev/null; then
+        do_install=true
+    elif [[ -t 0 ]]; then
+        local reply
+        read -r -p "Install udev rule to ${UDEV_RULE_DST} for automatic USB reconnect recovery (requires sudo)? [Y/n] " reply
+        reply="${reply:-Y}"
+        if [[ "$reply" =~ ^[Yy]$ ]]; then
+            do_install=true
+        fi
+    fi
+
+    if [[ "$do_install" == true ]]; then
+        info "Installing udev rule to ${UDEV_RULE_DST}..."
+        "${SUDO_CMD[@]}" cp "$rule_src" "$UDEV_RULE_DST"
+        "${SUDO_CMD[@]}" udevadm control --reload-rules
+        info "Reloaded udev rules."
+    else
+        warn "udev rule generated at ${rule_src} but not installed (requires sudo)."
+        info "Install it for automatic USB disconnect recovery:"
+        info "  sudo cp ${rule_src} ${UDEV_RULE_DST} && sudo udevadm control --reload-rules"
+    fi
+}
+
 install_systemd_unit() {
     if [[ "$INSTALL_USER_MODE" == true ]]; then
         local user_unit_dir="${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user"
-        info "Installing user systemd unit..."
+        info "Installing user systemd units (gammu-smsd + watchdog timer)..."
         mkdir -p "$user_unit_dir"
         cp "${SCRIPT_DIR}/gammu-smsd.service" "${user_unit_dir}/gammu-smsd.service"
+        cp "${SCRIPT_DIR}/gammu-smsd-watchdog.service" "${user_unit_dir}/gammu-smsd-watchdog.service"
+        cp "${SCRIPT_DIR}/gammu-smsd-watchdog.timer" "${user_unit_dir}/gammu-smsd-watchdog.timer"
         systemctl --user daemon-reload
         systemctl --user enable gammu-smsd.service
+        systemctl --user enable --now gammu-smsd-watchdog.timer
         info "Reloaded user systemd units."
     else
-        info "Installing system systemd unit..."
+        info "Installing system systemd units (gammu-smsd + watchdog timer)..."
         "${SUDO_CMD[@]}" cp "${SCRIPT_DIR}/gammu-smsd.service" \
             /etc/systemd/system/gammu-smsd.service
+        "${SUDO_CMD[@]}" cp "${SCRIPT_DIR}/gammu-smsd-watchdog.service" \
+            /etc/systemd/system/gammu-smsd-watchdog.service
+        "${SUDO_CMD[@]}" cp "${SCRIPT_DIR}/gammu-smsd-watchdog.timer" \
+            /etc/systemd/system/gammu-smsd-watchdog.timer
         "${SUDO_CMD[@]}" systemctl daemon-reload
         "${SUDO_CMD[@]}" systemctl enable gammu-smsd.service
+        "${SUDO_CMD[@]}" systemctl enable --now gammu-smsd-watchdog.timer
         info "Reloaded system systemd units."
     fi
     start_gammu_smsd
+    install_udev_rule
 }
 
 print_linger_warning() {
@@ -495,21 +753,45 @@ print_linger_warning() {
 uninstall_systemd_unit() {
     if [[ "$INSTALL_USER_MODE" == true ]]; then
         local user_unit_dir="${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user"
-        local user_unit="${user_unit_dir}/gammu-smsd.service"
-        info "Stopping and removing user systemd unit..."
-        systemctl --user stop gammu-smsd.service 2>/dev/null || true
-        systemctl --user disable gammu-smsd.service 2>/dev/null || true
-        rm -f "$user_unit"
+        info "Stopping and removing user systemd units..."
+        systemctl --user disable --now \
+            gammu-smsd-watchdog.timer \
+            gammu-smsd-watchdog.service \
+            gammu-smsd.service 2>/dev/null || true
+        rm -f \
+            "${user_unit_dir}/gammu-smsd.service" \
+            "${user_unit_dir}/gammu-smsd-watchdog.service" \
+            "${user_unit_dir}/gammu-smsd-watchdog.timer"
         systemctl --user daemon-reload
-        info "Removed ${user_unit} (if it was installed)."
+        info "Removed user systemd units (if installed)."
+        if [[ -e "$UDEV_RULE_DST" ]]; then
+            if [[ "${EUID}" -eq 0 ]] || sudo -n true 2>/dev/null; then
+                "${SUDO_CMD[@]}" rm -f "$UDEV_RULE_DST"
+                "${SUDO_CMD[@]}" udevadm control --reload-rules
+                info "Removed ${UDEV_RULE_DST}."
+            else
+                warn "${UDEV_RULE_DST} is still installed. Remove it with:"
+                info "  sudo rm -f ${UDEV_RULE_DST} && sudo udevadm control --reload-rules"
+            fi
+        fi
     else
         require_sudo
-        info "Stopping and removing system systemd unit..."
-        "${SUDO_CMD[@]}" systemctl stop gammu-smsd.service 2>/dev/null || true
-        "${SUDO_CMD[@]}" systemctl disable gammu-smsd.service 2>/dev/null || true
-        "${SUDO_CMD[@]}" rm -f /etc/systemd/system/gammu-smsd.service
+        info "Stopping and removing system systemd units..."
+        "${SUDO_CMD[@]}" systemctl disable --now \
+            gammu-smsd-watchdog.timer \
+            gammu-smsd-watchdog.service \
+            gammu-smsd.service 2>/dev/null || true
+        "${SUDO_CMD[@]}" rm -f \
+            /etc/systemd/system/gammu-smsd.service \
+            /etc/systemd/system/gammu-smsd-watchdog.service \
+            /etc/systemd/system/gammu-smsd-watchdog.timer
         "${SUDO_CMD[@]}" systemctl daemon-reload
-        info "Removed /etc/systemd/system/gammu-smsd.service (if it was installed)."
+        if [[ -e "$UDEV_RULE_DST" ]]; then
+            "${SUDO_CMD[@]}" rm -f "$UDEV_RULE_DST"
+            "${SUDO_CMD[@]}" udevadm control --reload-rules
+            info "Removed ${UDEV_RULE_DST}."
+        fi
+        info "Removed system systemd units (if installed)."
     fi
 }
 
@@ -520,6 +802,9 @@ remove_install_artifacts() {
         "${SCRIPT_DIR}/gammurc" \
         "${SCRIPT_DIR}/gammu-smsd.sysconfig" \
         "${SCRIPT_DIR}/gammu-smsd.service" \
+        "${SCRIPT_DIR}/gammu-smsd-watchdog.service" \
+        "${SCRIPT_DIR}/gammu-smsd-watchdog.timer" \
+        "${SCRIPT_DIR}/${UDEV_RULE_NAME}" \
         "${SCRIPT_DIR}/gammu-smsd.pid"
 }
 
@@ -561,16 +846,18 @@ print_summary() {
     info "  gammurc:       ${SCRIPT_DIR}/gammurc"
     info "  sysconfig:     ${SCRIPT_DIR}/gammu-smsd.sysconfig"
     info "  systemd unit:  ${SCRIPT_DIR}/gammu-smsd.service"
+    info "  watchdog:      ${SCRIPT_DIR}/gammu-smsd-watchdog.timer (every 2m)"
+    info "  udev rule:     ${SCRIPT_DIR}/${UDEV_RULE_NAME}"
     if [[ "$INSTALL_USER_MODE" == true ]]; then
         info "  Mode:          user (systemctl --user)"
         info "  GAMMU_USER:    ${USER:-$(whoami)}"
         print_linger_warning
-        info "  Status:        systemctl --user status gammu-smsd"
+        info "  Status:        systemctl --user status gammu-smsd gammu-smsd-watchdog.timer"
     else
         info "  Mode:          system (sudo systemctl)"
-        info "  Status:        sudo systemctl status gammu-smsd"
+        info "  Status:        sudo systemctl status gammu-smsd gammu-smsd-watchdog.timer"
     fi
-    info "  Modem device:  see device= in gammurc (set via gammu-detect during install)."
+    info "  Modem device:  ${DETECTED_DEVICE:-see device= in gammurc} (prefers /dev/serial/by-id/...)"
     if [[ "$CONFIG_PKL_READY" != true ]]; then
         warn "  config.pkl: not created — run configuration.py before relying on SMS → Telegram."
     fi

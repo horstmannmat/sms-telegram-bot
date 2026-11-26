@@ -129,6 +129,9 @@ result_from_scripts.txt
 gammurc
 gammu-smsd.sysconfig
 gammu-smsd.service
+gammu-smsd-watchdog.service
+gammu-smsd-watchdog.timer
+99-gammu-smsd-modem.rules
 gammu-smsd.pid
 log/
 sms/
